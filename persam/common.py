@@ -101,11 +101,18 @@ def points_to_kwargs(points:Tuple[np.ndarray,np.ndarray])->Dict[str,np.ndarray]:
     }
 
 def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.Tensor]={},logit_weights:Optional[np.ndarray]=None,use_box:bool=True,**kwargs)->torch.Tensor:
+
+    kwargs = {
+        **kwargs,
+        "multimask_output": True,
+        "high_res": True,
+    }
+
     # First-step prediction
     masks, scores, logits, logits_high = predictor.predict(
-                **kwargs,
-                **target_guidance,
-                multimask_output=True)
+        **kwargs,
+        **target_guidance,
+    )
 
     if logit_weights is None:
         best_idx = 0
@@ -129,7 +136,7 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
         **kwargs,
         box=box,
         mask_input=logit[None, :, :],
-        multimask_output=True)
+    )
     best_idx = np.argmax(scores)
     mask = masks[best_idx]
     logit = logits[best_idx]
@@ -140,7 +147,7 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
         **kwargs,
         box=box,
         mask_input=logit[None,:,:],
-        multimask_output=True)
+    )
     best_idx = np.argmax(scores)
     mask = masks[best_idx]
 

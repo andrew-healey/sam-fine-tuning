@@ -129,7 +129,7 @@ index 28fafea..d1fb0e3 100644
          out = attn @ v
          out = self._recombine_heads(out)
 diff --git a/segment_anything/predictor.py b/segment_anything/predictor.py
-index 8a6e6d8..24146db 100644
+index 8a6e6d8..99a17e5 100644
 --- a/segment_anything/predictor.py
 +++ b/segment_anything/predictor.py
 @@ -58,6 +58,15 @@ class SamPredictor:
@@ -148,34 +148,79 @@ index 8a6e6d8..24146db 100644
  
      @torch.no_grad()
      def set_torch_image(
-@@ -97,6 +106,8 @@ class SamPredictor:
+@@ -97,6 +106,9 @@ class SamPredictor:
          mask_input: Optional[np.ndarray] = None,
          multimask_output: bool = True,
          return_logits: bool = False,
 +        attn_sim = None,
-+        target_embedding = None
++        target_embedding = None,
++        high_res = False,
      ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
          """
          Predict masks for the given input prompts, using the currently set image.
-@@ -158,6 +169,8 @@ class SamPredictor:
+@@ -120,6 +132,10 @@ class SamPredictor:
+             input prompts, multimask_output=False can give better results.
+           return_logits (bool): If true, returns un-thresholded masks logits
+             instead of a binary mask.
++          attn_sim (torch.Tensor): A mask of embeddings similarity scores, used in attention.
++          target_embedding (torch.Tensor): A target embedding, used in attention.
++          high_res (bool): If true, returns high resolution masks.
++
+ 
+         Returns:
+           (np.ndarray): The output masks in CxHxW format, where C is the
+@@ -151,19 +167,28 @@ class SamPredictor:
+             mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float, device=self.device)
+             mask_input_torch = mask_input_torch[None, :, :, :]
+ 
+-        masks, iou_predictions, low_res_masks = self.predict_torch(
++        masks, iou_predictions, low_res_masks, *rest = self.predict_torch(
+             coords_torch,
+             labels_torch,
+             box_torch,
              mask_input_torch,
              multimask_output,
              return_logits=return_logits,
 +            attn_sim=attn_sim,
 +            target_embedding=target_embedding,
++            high_res=high_res,
          )
  
          masks_np = masks[0].detach().cpu().numpy()
-@@ -174,6 +187,8 @@ class SamPredictor:
+         iou_predictions_np = iou_predictions[0].detach().cpu().numpy()
+         low_res_masks_np = low_res_masks[0].detach().cpu().numpy()
+-        return masks_np, iou_predictions_np, low_res_masks_np
++
++        if high_res:
++          high_res_masks = rest[0]
++          high_res_masks = high_res_masks[0]
++          return masks_np, iou_predictions_np, low_res_masks_np, high_res_masks
++        else:
++          return masks_np, iou_predictions_np, low_res_masks_np
+ 
+     @torch.no_grad()
+     def predict_torch(
+@@ -174,6 +199,9 @@ class SamPredictor:
          mask_input: Optional[torch.Tensor] = None,
          multimask_output: bool = True,
          return_logits: bool = False,
-+        attn_sim = None,
-+        target_embedding = None
++        attn_sim:torch.Tensor = None,
++        target_embedding:torch.Tensor = None,
++        high_res:bool = False,
      ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
          """
          Predict masks for the given input prompts, using the currently set image.
-@@ -232,6 +247,8 @@ class SamPredictor:
+@@ -200,6 +228,9 @@ class SamPredictor:
+             input prompts, multimask_output=False can give better results.
+           return_logits (bool): If true, returns un-thresholded masks logits
+             instead of a binary mask.
++          attn_sim (torch.Tensor): A mask of embeddings similarity scores, used in attention.
++          target_embedding (torch.Tensor): A target embedding, used in attention.
++          high_res (bool): If true, returns high resolution masks.
+ 
+         Returns:
+           (torch.Tensor): The output masks in BxCxHxW format, where C is the
+@@ -232,15 +263,20 @@ class SamPredictor:
              sparse_prompt_embeddings=sparse_embeddings,
              dense_prompt_embeddings=dense_embeddings,
              multimask_output=multimask_output,
@@ -184,3 +229,18 @@ index 8a6e6d8..24146db 100644
          )
  
          # Upscale the masks to the original image resolution
+-        masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
++        high_res_masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
+ 
+         if not return_logits:
+-            masks = masks > self.model.mask_threshold
++            masks = high_res_masks > self.model.mask_threshold  # 0.0
+ 
+-        return masks, iou_predictions, low_res_masks
++        if high_res:
++          return masks, iou_predictions, low_res_masks, high_res_masks
++        else:
++          return masks, iou_predictions, low_res_masks
+ 
+     def get_image_embedding(self) -> torch.Tensor:
+         """
