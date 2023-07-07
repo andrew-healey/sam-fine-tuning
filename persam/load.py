@@ -9,14 +9,14 @@ import cv2
 def load_image(predictor:SamPredictor,image_path:str,mask_path:Optional[str]=None)->Tuple[torch.Tensor,torch.Tensor]:
     image = cv2.imread(image_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    predictor.set_image(image)
 
     if mask_path is None:
         mask = None
-        predictor.set_image(image)
     else:
         mask = cv2.imread(mask_path)
         mask = cv2.cvtColor(mask, cv2.COLOR_BGR2RGB)
-        mask = predictor.set_image(image, mask)
+        mask = predictor.preprocess_mask(mask)
 
     return image,mask
 

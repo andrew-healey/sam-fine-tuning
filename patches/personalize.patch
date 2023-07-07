@@ -129,10 +129,26 @@ index 28fafea..d1fb0e3 100644
          out = attn @ v
          out = self._recombine_heads(out)
 diff --git a/segment_anything/predictor.py b/segment_anything/predictor.py
-index 8a6e6d8..b85367d 100644
+index 8a6e6d8..24146db 100644
 --- a/segment_anything/predictor.py
 +++ b/segment_anything/predictor.py
-@@ -97,6 +97,8 @@ class SamPredictor:
+@@ -58,6 +58,15 @@ class SamPredictor:
+         input_image_torch = input_image_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
+ 
+         self.set_torch_image(input_image_torch, image.shape[:2])
++    
++    def preprocess_mask(self, mask: np.ndarray)->torch.Tensor:
++        # Transform the mask to the form expected by the model
++        input_mask = self.transform.apply_image(mask)
++        input_mask_torch = torch.as_tensor(input_mask, device=self.device)
++        input_mask_torch = input_mask_torch.permute(2, 0, 1).contiguous()[None, :, :, :]
++
++        input_mask = self.model.preprocess(input_mask_torch)  # pad to 1024
++        return input_mask
+ 
+     @torch.no_grad()
+     def set_torch_image(
+@@ -97,6 +106,8 @@ class SamPredictor:
          mask_input: Optional[np.ndarray] = None,
          multimask_output: bool = True,
          return_logits: bool = False,
@@ -141,7 +157,7 @@ index 8a6e6d8..b85367d 100644
      ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
          """
          Predict masks for the given input prompts, using the currently set image.
-@@ -158,6 +160,8 @@ class SamPredictor:
+@@ -158,6 +169,8 @@ class SamPredictor:
              mask_input_torch,
              multimask_output,
              return_logits=return_logits,
@@ -150,7 +166,7 @@ index 8a6e6d8..b85367d 100644
          )
  
          masks_np = masks[0].detach().cpu().numpy()
-@@ -174,6 +178,8 @@ class SamPredictor:
+@@ -174,6 +187,8 @@ class SamPredictor:
          mask_input: Optional[torch.Tensor] = None,
          multimask_output: bool = True,
          return_logits: bool = False,
@@ -159,7 +175,7 @@ index 8a6e6d8..b85367d 100644
      ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
          """
          Predict masks for the given input prompts, using the currently set image.
-@@ -232,6 +238,8 @@ class SamPredictor:
+@@ -232,6 +247,8 @@ class SamPredictor:
              sparse_prompt_embeddings=sparse_embeddings,
              dense_prompt_embeddings=dense_embeddings,
              multimask_output=multimask_output,
