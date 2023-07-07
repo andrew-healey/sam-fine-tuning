@@ -1,10 +1,10 @@
 
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "segment_anything"))
+sys.path.append(os.path.join(os.path.dirname(__file__),"..","segment-anything"))
 
 from typing import Tuple,Optional,Dict
 
-from segment_anything.predictor import SamPredictor
+from segment_anything import SamPredictor
 
 import torch
 from torch.nn import functional as F
