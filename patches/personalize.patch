@@ -60,7 +60,7 @@ index c3143f4..a1a5d9d 100644
          self,
          points: Optional[Tuple[torch.Tensor, torch.Tensor]],
 diff --git a/segment_anything/modeling/transformer.py b/segment_anything/modeling/transformer.py
-index 28fafea..d1fb0e3 100644
+index 28fafea..45ecd31 100644
 --- a/segment_anything/modeling/transformer.py
 +++ b/segment_anything/modeling/transformer.py
 @@ -64,6 +64,8 @@ class TwoWayTransformer(nn.Module):
@@ -72,7 +72,14 @@ index 28fafea..d1fb0e3 100644
      ) -> Tuple[Tensor, Tensor]:
          """
          Args:
-@@ -94,11 +96,17 @@ class TwoWayTransformer(nn.Module):
+@@ -89,16 +91,24 @@ class TwoWayTransformer(nn.Module):
+ 
+         # Apply transformer blocks and final layernorm
+         for layer in self.layers:
++            if target_embedding is not None:
++                queries += target_embedding
+             queries, keys = layer(
+                 queries=queries,
                  keys=keys,
                  query_pe=point_embedding,
                  key_pe=image_pe,
@@ -90,7 +97,7 @@ index 28fafea..d1fb0e3 100644
          attn_out = self.final_attn_token_to_image(q=q, k=k, v=keys)
          queries = queries + attn_out
          queries = self.norm_final_attn(queries)
-@@ -149,7 +157,7 @@ class TwoWayAttentionBlock(nn.Module):
+@@ -149,7 +159,7 @@ class TwoWayAttentionBlock(nn.Module):
          self.skip_first_layer_pe = skip_first_layer_pe
  
      def forward(
@@ -99,7 +106,7 @@ index 28fafea..d1fb0e3 100644
      ) -> Tuple[Tensor, Tensor]:
          # Self attention block
          if self.skip_first_layer_pe:
-@@ -163,7 +171,7 @@ class TwoWayAttentionBlock(nn.Module):
+@@ -163,7 +173,7 @@ class TwoWayAttentionBlock(nn.Module):
          # Cross attention block, tokens attending to image embedding
          q = queries + query_pe
          k = keys + key_pe
@@ -108,7 +115,7 @@ index 28fafea..d1fb0e3 100644
          queries = queries + attn_out
          queries = self.norm2(queries)
  
-@@ -215,7 +223,7 @@ class Attention(nn.Module):
+@@ -215,7 +225,7 @@ class Attention(nn.Module):
          x = x.transpose(1, 2)
          return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
  
@@ -117,7 +124,7 @@ index 28fafea..d1fb0e3 100644
          # Input projections
          q = self.q_proj(q)
          k = self.k_proj(k)
-@@ -232,6 +240,10 @@ class Attention(nn.Module):
+@@ -232,6 +242,10 @@ class Attention(nn.Module):
          attn = attn / math.sqrt(c_per_head)
          attn = torch.softmax(attn, dim=-1)
  

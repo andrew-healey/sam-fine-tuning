@@ -108,13 +108,16 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
         "high_res": True,
     }
 
+    start_with_multimask = logit_weights is not None
+
     # First-step prediction
     masks, scores, logits, logits_high = predictor.predict(
         **kwargs,
         **target_guidance,
+        multimask_output=start_with_multimask
     )
 
-    if logit_weights is None:
+    if not start_with_multimask:
         best_idx = 0
         mask = masks[best_idx]
         logit = logits[best_idx]

@@ -9,6 +9,8 @@ def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_d
     should_normalize = True
     target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
 
+    mkdirp(output_dir)
+
     for test_img_name,test_img_path in load_images_in_dir(test_img_dir):
         print(f"Processing {test_img_name}...")
         load_image(predictor,test_img_path)
@@ -36,7 +38,7 @@ def get_arguments():
     parser.add_argument('--ref_img', type=str, default='./data/Images/backpack_dog/00.jpg')
     parser.add_argument('--ref_mask', type=str, default='./data/Annotations/backpack_dog/00.png')
     parser.add_argument('--img_dir', type=str, default='./data/Images/backpack_dog')
-    parser.add_argument('--out_dir', type=str, default='persam')
+    parser.add_argument('--out_dir', type=str, default='output')
     parser.add_argument('--sam_type', type=str, default='vit_h')
     
     args = parser.parse_args()
