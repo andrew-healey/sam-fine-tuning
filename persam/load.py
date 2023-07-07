@@ -20,9 +20,9 @@ def load_image(predictor:SamPredictor,image_path:str,mask_path:Optional[str]=Non
 
     return image,mask
 
-def load_predictor(sam_type:str)->SamPredictor:
+def load_predictor(sam_type:str="vit_h")->SamPredictor:
     if sam_type == 'vit_h':
-        sam_type, sam_ckpt = 'vit_h', 'sam_vit_h_4b8939.pth'
+        sam_type, sam_ckpt = 'vit_h', 'weights/sam_vit_h_4b8939.pth'
         sam = sam_model_registry[sam_type](checkpoint=sam_ckpt).cuda()
     elif sam_type == 'vit_t':
         sam_type, sam_ckpt = 'vit_t', 'weights/mobile_sam.pt'
@@ -49,3 +49,6 @@ def save_mask(mask:torch.Tensor,mask_path:str):
     mask_colors = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
     mask_colors[mask, :] = np.array([[0, 0, 128]])
     cv2.imwrite(mask_path, mask_colors)
+
+def mkdirp(dir:str):
+    os.makedirs(dir,exist_ok=True)

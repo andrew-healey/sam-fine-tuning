@@ -26,3 +26,28 @@ def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_d
         save_mask(mask,mask_path)
         print("Saved mask to",mask_path)
 
+import argparse
+def get_arguments():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--ref_img', type=str, default='./data/Images/backpack_dog/00.jpg')
+    parser.add_argument('--ref_mask', type=str, default='./data/Annotations/backpack_dog/00.png')
+    parser.add_argument('--img_dir', type=str, default='./data/Images/backpack_dog')
+    parser.add_argument('--out_dir', type=str, default='persam')
+    parser.add_argument('--sam_type', type=str, default='vit_h')
+    
+    args = parser.parse_args()
+    return args
+
+
+
+if __name__ == "__main__":
+
+    args = get_arguments()
+
+    # Load the predictor
+    predictor = load_predictor(sam_type=args.sam_type)
+
+    persam(predictor,args.ref_img,args.ref_mask,args.img_dir,args.out_dir)
+
+    print("Done!")
