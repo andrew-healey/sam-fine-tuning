@@ -1,0 +1,170 @@
+diff --git a/segment_anything/modeling/mask_decoder.py b/segment_anything/modeling/mask_decoder.py
+index 5d2fdb0..a2f7e64 100644
+--- a/segment_anything/modeling/mask_decoder.py
++++ b/segment_anything/modeling/mask_decoder.py
+@@ -67,6 +67,8 @@ class MaskDecoder(nn.Module):
+         self.iou_prediction_head = MLP(
+             transformer_dim, iou_head_hidden_dim, self.num_mask_tokens, iou_head_depth
+         )
++        # TODO: add custom heads, maybe?
++        # i.e. class prediction head
+ 
+     def forward(
+         self,
+@@ -75,6 +77,8 @@ class MaskDecoder(nn.Module):
+         sparse_prompt_embeddings: torch.Tensor,
+         dense_prompt_embeddings: torch.Tensor,
+         multimask_output: bool,
++        attn_sim=None,
++        target_embedding=None
+     ) -> Tuple[torch.Tensor, torch.Tensor]:
+         """
+         Predict masks given image and prompt embeddings.
+@@ -96,6 +100,8 @@ class MaskDecoder(nn.Module):
+             image_pe=image_pe,
+             sparse_prompt_embeddings=sparse_prompt_embeddings,
+             dense_prompt_embeddings=dense_prompt_embeddings,
++            attn_sim=attn_sim,
++            target_embedding=target_embedding
+         )
+ 
+         # Select the correct mask or masks for output
+@@ -115,6 +121,8 @@ class MaskDecoder(nn.Module):
+         image_pe: torch.Tensor,
+         sparse_prompt_embeddings: torch.Tensor,
+         dense_prompt_embeddings: torch.Tensor,
++        attn_sim=None,
++        target_embedding=None
+     ) -> Tuple[torch.Tensor, torch.Tensor]:
+         """Predicts masks. See 'forward' for more details."""
+         # Concatenate output tokens
+@@ -129,7 +137,7 @@ class MaskDecoder(nn.Module):
+         b, c, h, w = src.shape
+ 
+         # Run the transformer
+-        hs, src = self.transformer(src, pos_src, tokens)
++        hs, src = self.transformer(src, pos_src, tokens, attn_sim, target_embedding)
+         iou_token_out = hs[:, 0, :]
+         mask_tokens_out = hs[:, 1 : (1 + self.num_mask_tokens), :]
+ 
+diff --git a/segment_anything/modeling/prompt_encoder.py b/segment_anything/modeling/prompt_encoder.py
+index c3143f4..a1a5d9d 100644
+--- a/segment_anything/modeling/prompt_encoder.py
++++ b/segment_anything/modeling/prompt_encoder.py
+@@ -125,6 +125,7 @@ class PromptEncoder(nn.Module):
+     def _get_device(self) -> torch.device:
+         return self.point_embeddings[0].weight.device
+ 
++    # TODO: add image embedding vectors, CLIP embedding vectors
+     def forward(
+         self,
+         points: Optional[Tuple[torch.Tensor, torch.Tensor]],
+diff --git a/segment_anything/modeling/transformer.py b/segment_anything/modeling/transformer.py
+index 28fafea..d1fb0e3 100644
+--- a/segment_anything/modeling/transformer.py
++++ b/segment_anything/modeling/transformer.py
+@@ -64,6 +64,8 @@ class TwoWayTransformer(nn.Module):
+         image_embedding: Tensor,
+         image_pe: Tensor,
+         point_embedding: Tensor,
++        attn_sim: Tensor,
++        target_embedding=None
+     ) -> Tuple[Tensor, Tensor]:
+         """
+         Args:
+@@ -94,11 +96,17 @@ class TwoWayTransformer(nn.Module):
+                 keys=keys,
+                 query_pe=point_embedding,
+                 key_pe=image_pe,
++                attn_sim=attn_sim,
+             )
+ 
+         # Apply the final attention layer from the points to the image
+         q = queries + point_embedding
+         k = keys + image_pe
++
++
++        if target_embedding is not None:
++            q += target_embedding
++
+         attn_out = self.final_attn_token_to_image(q=q, k=k, v=keys)
+         queries = queries + attn_out
+         queries = self.norm_final_attn(queries)
+@@ -149,7 +157,7 @@ class TwoWayAttentionBlock(nn.Module):
+         self.skip_first_layer_pe = skip_first_layer_pe
+ 
+     def forward(
+-        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
++        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor, attn_sim: Tensor
+     ) -> Tuple[Tensor, Tensor]:
+         # Self attention block
+         if self.skip_first_layer_pe:
+@@ -163,7 +171,7 @@ class TwoWayAttentionBlock(nn.Module):
+         # Cross attention block, tokens attending to image embedding
+         q = queries + query_pe
+         k = keys + key_pe
+-        attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
++        attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys, attn_sim=attn_sim)
+         queries = queries + attn_out
+         queries = self.norm2(queries)
+ 
+@@ -215,7 +223,7 @@ class Attention(nn.Module):
+         x = x.transpose(1, 2)
+         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
+ 
+-    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
++    def forward(self, q: Tensor, k: Tensor, v: Tensor, attn_sim: Tensor=None) -> Tensor:
+         # Input projections
+         q = self.q_proj(q)
+         k = self.k_proj(k)
+@@ -232,6 +240,10 @@ class Attention(nn.Module):
+         attn = attn / math.sqrt(c_per_head)
+         attn = torch.softmax(attn, dim=-1)
+ 
++        if attn_sim is not None:
++            attn = attn + attn_sim
++            attn = torch.softmax(attn, dim=-1)
++
+         # Get output
+         out = attn @ v
+         out = self._recombine_heads(out)
+diff --git a/segment_anything/predictor.py b/segment_anything/predictor.py
+index 8a6e6d8..b85367d 100644
+--- a/segment_anything/predictor.py
++++ b/segment_anything/predictor.py
+@@ -97,6 +97,8 @@ class SamPredictor:
+         mask_input: Optional[np.ndarray] = None,
+         multimask_output: bool = True,
+         return_logits: bool = False,
++        attn_sim = None,
++        target_embedding = None
+     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+         """
+         Predict masks for the given input prompts, using the currently set image.
+@@ -158,6 +160,8 @@ class SamPredictor:
+             mask_input_torch,
+             multimask_output,
+             return_logits=return_logits,
++            attn_sim=attn_sim,
++            target_embedding=target_embedding,
+         )
+ 
+         masks_np = masks[0].detach().cpu().numpy()
+@@ -174,6 +178,8 @@ class SamPredictor:
+         mask_input: Optional[torch.Tensor] = None,
+         multimask_output: bool = True,
+         return_logits: bool = False,
++        attn_sim = None,
++        target_embedding = None
+     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+         """
+         Predict masks for the given input prompts, using the currently set image.
+@@ -232,6 +238,8 @@ class SamPredictor:
+             sparse_prompt_embeddings=sparse_embeddings,
+             dense_prompt_embeddings=dense_embeddings,
+             multimask_output=multimask_output,
++            attn_sim=attn_sim,
++            target_embedding=target_embedding
+         )
+ 
+         # Upscale the masks to the original image resolution
