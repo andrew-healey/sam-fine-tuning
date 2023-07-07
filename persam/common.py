@@ -104,7 +104,6 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
 
     kwargs = {
         **kwargs,
-        "multimask_output": True,
         "high_res": True,
     }
 
@@ -139,6 +138,7 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
         **kwargs,
         box=box,
         mask_input=logit[None, :, :],
+        multimask_output=True
     )
     best_idx = np.argmax(scores)
     mask = masks[best_idx]
@@ -150,6 +150,7 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
         **kwargs,
         box=box,
         mask_input=logit[None,:,:],
+        multimask_output=True
     )
     best_idx = np.argmax(scores)
     mask = masks[best_idx]
