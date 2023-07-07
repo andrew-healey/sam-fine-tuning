@@ -2,12 +2,15 @@ from common import *
 from load import *
 
 def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_dir:str,output_dir:str):
+
+    print("Loading reference image...")
     ref_img,ref_mask = load_image(predictor,ref_img_path,ref_mask_path)
 
     should_normalize = True
     target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
 
     for test_img_name,test_img_path in load_images_in_dir(test_img_dir):
+        print(f"Processing {test_img_name}...")
         load_image(predictor,test_img_path)
 
         sim_map = get_sim_map(predictor,target_feat)
@@ -45,6 +48,7 @@ if __name__ == "__main__":
 
     args = get_arguments()
 
+    print("Loading SAM...")
     # Load the predictor
     predictor = load_predictor(sam_type=args.sam_type)
 
