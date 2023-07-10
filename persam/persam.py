@@ -54,6 +54,9 @@ if __name__ == "__main__":
     # Load the predictor
     predictor = load_predictor(sam_type=args.sam_type)
 
+    rmrf(args.out_dir)
+    mkdirp(args.out_dir)
+
     for ref_img_path,ref_mask_path,test_img_dir,output_dir in load_dirs(args.ref_img,args.ref_mask,args.img_dir,args.out_dir):
         print(f"Processing {test_img_dir}...")
         persam(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir)
