@@ -37,7 +37,7 @@ def get_arguments():
 
     parser.add_argument('--ref_img', type=str, default='./data/Images/*/00.jpg')
     parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
-    parser.add_argument('--img_dir', type=str, default='./data/Images/*')
+    parser.add_argument('--img_dir', type=str, default='./data/Images/*/')
     parser.add_argument('--out_dir', type=str, default='output')
     parser.add_argument('--sam_type', type=str, default='vit_h')
     
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     predictor = load_predictor(sam_type=args.sam_type)
 
     for ref_img_path,ref_mask_path,test_img_dir,output_dir in load_dirs(args.ref_img,args.ref_mask,args.img_dir,args.out_dir):
-        print(f"Processing {ref_img_path}...")
+        print(f"Processing {test_img_dir}...")
         persam(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir)
 
     print("Done!")

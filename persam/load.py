@@ -38,7 +38,7 @@ import os
 import glob
 
 def load_images_in_dir(dir:str)->Generator[Tuple[str,str],None,None]:
-    image_paths = glob.glob(os.path.join(dir,'**/*.*'))
+    image_paths = glob.glob(os.path.join(dir,'*.*'))
     for image_path in image_paths:
         image_name = os.path.basename(image_path).split('.')[0]
         yield image_name,image_path
