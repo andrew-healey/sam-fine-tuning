@@ -38,7 +38,7 @@ import os
 import glob
 
 def load_images_in_dir(dir:str)->Generator[Tuple[str,str],None,None]:
-    image_paths = glob.glob(os.path.join(dir,'*.*'))
+    image_paths = glob.glob(os.path.join(dir,'**/*.*'))
     for image_path in image_paths:
         image_name = os.path.basename(image_path).split('.')[0]
         yield image_name,image_path
@@ -52,3 +52,13 @@ def save_mask(mask:torch.Tensor,mask_path:str):
 
 def mkdirp(dir:str):
     os.makedirs(dir,exist_ok=True)
+
+def load_dirs(ref_img_glob:str,ref_mask_glob:str,test_img_dir_glob:str,output_super_dir:str):
+    ref_img_paths = glob.glob(ref_img_glob)
+    ref_mask_paths = glob.glob(ref_mask_glob)
+
+    test_img_dirs = glob.glob(test_img_dir_glob)
+    
+    for ref_img_path,ref_mask_path,test_img_dir in zip(ref_img_paths,ref_mask_paths,test_img_dirs):
+        output_dir = os.path.join(output_super_dir,os.path.basename(test_img_dir))
+        yield ref_img_path,ref_mask_path,test_img_dir,output_dir
