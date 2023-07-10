@@ -85,20 +85,6 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
             save_mask(mask,mask_path)
             print("Saved mask to",mask_path)
 
-import argparse
-def get_arguments():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--ref_img', type=str, default='./data/Images/*/00.jpg')
-    parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
-    parser.add_argument('--img_dir', type=str, default='./data/Images/*')
-    parser.add_argument('--out_dir', type=str, default='output')
-    parser.add_argument('--sam_type', type=str, default='vit_h')
-    parser.add_argument('--train_iters', type=int, default=1000)
-    
-    args = parser.parse_args()
-    return args
-
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -231,9 +217,27 @@ def calculate_sigmoid_focal_loss(inputs, targets, num_masks = 1, alpha: float = 
     return loss.mean(1).sum() / num_masks
 
 
+import argparse
+def get_arguments():
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--ref_img', type=str, default='./data/Images/*/00.jpg')
+    parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
+    parser.add_argument('--img_dir', type=str, default='./data/Images/*')
+    parser.add_argument('--out_dir', type=str, default='output')
+    parser.add_argument('--sam_type', type=str, default='vit_h')
+    parser.add_argument('--train_iters', type=int, default=1000)
+    parser.add_argument('--experiment', type=str, default='single')
+    
+    args = parser.parse_args()
+    return args
+
+
 if __name__ == "__main__":
 
     args = get_arguments()
+
+    experiment_name = args.experiment
 
     print("Loading SAM...")
     # Load the predictor
@@ -244,6 +248,6 @@ if __name__ == "__main__":
 
     for ref_img_path,ref_mask_path,test_img_dir,output_dir in load_dirs(args.ref_img,args.ref_mask,args.img_dir,args.out_dir):
         print(f"Processing {test_img_dir}...")
-        persam_f(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir)
+        persam_f(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir,experiment_name)
 
     print("Done!")
