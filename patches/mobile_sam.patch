@@ -72,6 +72,15 @@ index 6ca5e40..37cd245 100644
  }
  
  
+diff --git a/segment_anything/modeling/__init__.py b/segment_anything/modeling/__init__.py
+index 7aa261b..38e9062 100644
+--- a/segment_anything/modeling/__init__.py
++++ b/segment_anything/modeling/__init__.py
+@@ -9,4 +9,3 @@ from .image_encoder import ImageEncoderViT
+ from .mask_decoder import MaskDecoder
+ from .prompt_encoder import PromptEncoder
+ from .transformer import TwoWayTransformer
+-from .tiny_vit_sam import TinyViT
 diff --git a/segment_anything/modeling/sam.py b/segment_anything/modeling/sam.py
 index bb0c9eb..8074cff 100644
 --- a/segment_anything/modeling/sam.py
