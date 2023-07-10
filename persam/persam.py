@@ -27,7 +27,14 @@ def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_d
             "target_embedding":target_embedding  # Target-semantic Prompting
         }
 
-        mask = predict_mask_refined(predictor,target_guidance,use_box=False,**kwargs)
+        mask = predict_mask_refined(
+            predictor,
+            target_guidance,
+            # Pick a single mask
+            "single",
+            None,
+            **kwargs
+        )
 
         mask_path = os.path.join(output_dir,test_img_name+".png")
         save_mask(mask,mask_path)

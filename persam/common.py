@@ -2,7 +2,7 @@
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__),"..","segment-anything"))
 
-from typing import Tuple,Optional,Dict
+from typing import Tuple,Optional,Dict,Any
 
 from segment_anything import SamPredictor
 
@@ -100,28 +100,50 @@ def points_to_kwargs(points:Tuple[np.ndarray,np.ndarray])->Dict[str,np.ndarray]:
         "point_labels": topk_label
     }
 
-def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.Tensor]={},logit_weights:Optional[np.ndarray]=None,use_box:bool=True,**kwargs)->torch.Tensor:
+def cosine_similarity(x:torch.Tensor,y:torch.Tensor)->torch.Tensor:
+    x = x / x.norm(dim=-1, keepdim=True)
+    y = y / y.norm(dim=-1, keepdim=True)
+    return x @ y.transpose(-1,-2)
+
+def predict_mask_refined(
+        predictor:SamPredictor,
+        target_guidance:Dict[str,torch.Tensor],
+        mask_picking_method:str,
+        mask_picking_data:Optional[np.ndarray]=None,
+        # use_box:bool=True,
+        **kwargs
+    )->torch.Tensor:
 
     kwargs = {
         **kwargs,
         "high_res": True,
     }
 
-    start_with_multimask = logit_weights is not None
+    get_single_mask = mask_picking_method == "single"
 
     # First-step prediction
     masks, scores, logits, logits_high = predictor.predict(
         **kwargs,
         **target_guidance,
-        multimask_output=start_with_multimask
+        multimask_output=not get_single_mask
     )
 
-    if not start_with_multimask:
+    def get_best_log_distance(arr:list[any],target:any):
+        log_arr = torch.log(torch.tensor(arr))
+        log_target = torch.log(torch.tesor(target))
+        log_dist = torch.abs(log_arr - log_target)
+        return torch.argmin(log_dist)
+
+    # Experiments!
+
+    # -1 means best_idx is unset
+    best_idx = -1
+
+    if get_single_mask:
         best_idx = 0
-        mask = masks[best_idx]
-        logit = logits[best_idx]
-    else:
-        # Weighted sum three-scale masks
+    elif mask_picking_method in ["linear_combo","best_idx","best_idx_iou"]:
+        logit_weights = mask_picking_data
+        # Weighted sum of three-scale masks
         logits_high = logits_high * logit_weights.unsqueeze(-1)
         logit_high = logits_high.sum(0)
         mask = (logit_high > 0).detach().cpu().numpy()
@@ -130,9 +152,49 @@ def predict_mask_refined(predictor:SamPredictor,target_guidance:Dict[str,torch.T
 
         logits = logits * logit_weights_np[..., None]
         logit = logits.sum(0)
+    elif mask_picking_method == "area":
+        areas = torch.stack([torch.sum(masks[idx]) for idx in range(3)])
+        ref_area = mask_picking_data
+        best_idx = get_best_log_distance(areas, ref_area)
+    elif mask_picking_method in ["bbox_area","perimeter"]:
+        boxes = [mask_to_box(masks[idx]) for idx in range(3)]
+        widths = [box[2] - box[0] for box in boxes]
+        heights = [box[3] - box[1] for box in boxes]
+
+        if mask_picking_method == "bbox_area":
+            ref_area = mask_picking_data
+
+            areas = [width * height for width, height in zip(widths, heights)]
+            best_idx = get_best_log_distance(areas, ref_area)
+        elif mask_picking_method == "perimeter":
+            ref_perimeter = mask_picking_data
+
+            perimeters = [2 * (width + height) for width, height in zip(widths, heights)]
+            best_idx = get_best_log_distance(perimeters, ref_perimeter)
+    elif mask_picking_method == "sam_embedding":
+        sam_embedding,should_normalize = mask_picking_data
+        mask_embeds = [get_mask_embed(predictor,masks[idx],should_normalize) for idx in range(3)]
+        cosine_similarities = [cosine_similarity(sam_embedding,mask_embed) for mask_embed in mask_embeds]
+        best_idx = torch.argmax(cosine_similarities)
+    elif mask_picking_method == "clip_embedding":
+        raise NotImplementedError()
+    elif mask_picking_method == "sim":
+        # get average similarity score across each mask
+        sim_map = mask_picking_data
+        filtered_maps = [sim_map * mask for mask in masks]
+        sim_scores = [torch.mean(filtered_map) for filtered_map in filtered_maps]
+        best_idx = torch.argmax(sim_scores)
+    elif mask_picking_method == "max_score":
+        best_idx = torch.argmax(scores)
+    
+
+    # Only extract "best" mask if best_idx is set
+    if best_idx >= 0:
+        mask = masks[best_idx]
+        logit = logits[best_idx]
 
     # Cascaded Post-refinement-1
-    box = mask_to_box(mask) if use_box else None
+    box = mask_to_box(mask) if get_single_mask else None
 
     masks, scores, logits, _ = predictor.predict(
         **kwargs,

@@ -53,5 +53,5 @@ if __name__ == "__main__":
         running_miou+=miou
     
     avg_miou = running_miou / num_dirs
-    print(f"Average mIoU: {round(avg_miou,3)}")
+    print(f"mIoU: {round(avg_miou,3)}")
     
