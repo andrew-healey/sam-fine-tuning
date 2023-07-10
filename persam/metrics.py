@@ -40,7 +40,11 @@ if __name__ == "__main__":
     running_miou = 0
     num_dirs = 0
 
-    for gt_dir,output_dir in zip_globs(args.gt_dir_glob,args.output_dir_glob):
+    gt_dirs = glob.glob(args.gt_dir_glob)
+
+    for output_dir in glob.glob(args.output_dir_glob):
+        gt_dir = gt_dirs.find(lambda d: os.path.basename(d) == os.path.basename(output_dir))
+
         miou = semseg_miou(gt_dir,output_dir)
         g = os.path.basename(gt_dir)
         print(f"{g}: {round(miou,3)}")
