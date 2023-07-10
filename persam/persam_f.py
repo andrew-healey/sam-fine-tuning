@@ -112,6 +112,12 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
     original_logits_high = TVF.resize(original_logits_high,resolution)
     original_logits_high = original_logits_high.flatten(1)
 
+    gt_mask = torch.tensor(ref_mask)[None,:, :, 0] > 0
+    gt_mask = TVF.resize(gt_mask.float(), resolution)
+    gt_mask = gt_mask.flatten(1).cuda()
+
+    masks = TVF.resize(masks, resolution).flatten(1)
+
     # Figure out which logit/mask combination to use.
 
     # Experiment 1. Find the mask with the highest IoU (or maybe loss) with the target mask.
@@ -132,8 +138,8 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
             curr_logits_high = original_logits_high * weights
             curr_logits_high = curr_logits_high.sum(0).unsqueeze(0)
 
-            dice_loss = calculate_dice_loss(curr_logits_high, ref_mask)
-            focal_loss = calculate_sigmoid_focal_loss(curr_logits_high, ref_mask)
+            dice_loss = calculate_dice_loss(curr_logits_high, gt_mask)
+            focal_loss = calculate_sigmoid_focal_loss(curr_logits_high, gt_mask)
             loss = dice_loss + focal_loss
 
             optimizer.zero_grad()
@@ -156,14 +162,16 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
 
     if experiment_name == "best_idx":
         masks = [masks[idx] for idx in range(3)]
-        dice_losses = [calculate_dice_loss(original_logits_high[idx],ref_mask) for idx in range(3)]
-        focal_losses = [calculate_sigmoid_focal_loss(original_logits_high[idx],ref_mask) for idx in range(3)]
+        print("masks",masks[0].shape,"gt_mask",gt_mask.shape)
+
+        dice_losses = [calculate_dice_loss(original_logits_high[idx],gt_mask) for idx in range(3)]
+        focal_losses = [calculate_sigmoid_focal_loss(original_logits_high[idx],gt_mask) for idx in range(3)]
         losses = [dice_losses[idx] + focal_losses[idx] for idx in range(3)]
         best_idx = torch.argmin(torch.stack(losses))
 
     elif experiment_name == "best_idx_iou":
-        intersections = [torch.logical_and(masks[idx],ref_mask).sum() for idx in range(3)]
-        unions = [torch.logical_or(masks[idx],ref_mask).sum() for idx in range(3)]
+        intersections = [torch.logical_and(masks[idx],gt_mask).sum() for idx in range(3)]
+        unions = [torch.logical_or(masks[idx],gt_mask).sum() for idx in range(3)]
         ious = [intersections[idx] / (unions[idx] + 1e-10) for idx in range(3)]
         best_idx = torch.argmax(torch.stack(ious))
 
