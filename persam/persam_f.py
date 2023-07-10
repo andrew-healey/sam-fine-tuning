@@ -1,6 +1,8 @@
 from common import *
 from load import *
 
+NORM_EXPERIMENT_VALUES=[True,False]
+
 FT_EXPERIMENT_NAMES=[
     "sam_embedding", # cosine similarity of SAM embeddings
     "clip_embedding", # cosine similarity of CLIP embeddings
@@ -15,7 +17,7 @@ FT_EXPERIMENT_NAMES=[
     "max_score", # Mask with highest score
 ]
 
-def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_dir:str,output_dir:str, experiment_name:str):
+def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_dir:str,output_dir:str, experiment_name:str,should_normalize:bool):
 
     if experiment_name not in FT_EXPERIMENT_NAMES:
         raise ValueError(f"Invalid experiment name {experiment_name}")
@@ -23,7 +25,6 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
     print("Loading reference image...")
     ref_img,ref_mask = load_image(predictor,ref_img_path,ref_mask_path)
 
-    should_normalize = False
     target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
 
     mkdirp(output_dir)
@@ -90,6 +91,10 @@ import torch.nn as nn
 from torch.nn import functional as F
 import torchvision.transforms.functional as TVF
 
+lr = 1e-3
+train_epoch = 1000
+log_epoch = 200
+
 def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_name:str,target_guidance:Dict[str,torch.Tensor],**kwargs)->torch.Tensor:
     kwargs = {
         **kwargs,
@@ -118,10 +123,10 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
         mask_weights = Mask_Weights().cuda()
         mask_weights.train()
         
-        optimizer = torch.optim.AdamW(mask_weights.parameters(), lr=args.lr, eps=1e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.train_epoch)
+        optimizer = torch.optim.AdamW(mask_weights.parameters(), lr=lr, eps=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, train_epoch)
 
-        for train_idx in range(args.train_epoch):
+        for train_idx in range(train_epoch):
             # Weighted sum three-scale masks
             weights = torch.cat((1 - mask_weights.weights.sum(0).unsqueeze(0), mask_weights.weights), dim=0)
             curr_logits_high = original_logits_high * weights
@@ -136,8 +141,8 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
             optimizer.step()
             scheduler.step()
 
-            if train_idx % args.log_epoch == 0:
-                print('Train Epoch: {:} / {:}'.format(train_idx, args.train_epoch))
+            if train_idx % log_epoch == 0:
+                print('Train Epoch: {:} / {:}'.format(train_idx, train_epoch))
                 current_lr = scheduler.get_last_lr()[0]
                 print('LR: {:.6f}, Dice_Loss: {:.4f}, Focal_Loss: {:.4f}'.format(current_lr, dice_loss.item(), focal_loss.item()))
 
@@ -225,9 +230,10 @@ def get_arguments():
     parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
     parser.add_argument('--img_dir', type=str, default='./data/Images/*')
     parser.add_argument('--out_dir', type=str, default='output')
+
     parser.add_argument('--sam_type', type=str, default='vit_h')
-    parser.add_argument('--train_iters', type=int, default=1000)
     parser.add_argument('--experiment', type=str, default='single')
+    parser.add_argument('--norm', type=bool, default=False)
     
     args = parser.parse_args()
     return args
