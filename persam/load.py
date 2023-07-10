@@ -54,7 +54,7 @@ def mkdirp(dir:str):
     os.makedirs(dir,exist_ok=True)
 
 def zip_globs(*globs):
-    evalled = [glob.glob(glob) for glob in globs]
+    evalled = [glob.glob(g) for g in globs]
     zipped = zip(*evalled)
     return zipped
 
