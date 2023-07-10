@@ -12,6 +12,8 @@ def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_d
     mkdirp(output_dir)
 
     for test_img_name,test_img_path in load_images_in_dir(test_img_dir):
+        if test_img_path == ref_img_path: continue
+
         print(f"Processing {test_img_name}...")
         load_image(predictor,test_img_path)
 
