@@ -15,7 +15,8 @@ import numpy as np
 def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize:bool=True)->Tuple[torch.Tensor,torch.Tensor]:
     ref_feat = predictor.features.squeeze().permute(1, 2, 0)
 
-    ref_mask = F.interpolate(ref_mask, size=ref_feat.shape[0: 2], mode="bilinear")
+    feat_dims = ref_feat.shape[0: 2]
+    ref_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
     ref_mask = ref_mask.squeeze()[0]
 
     # Target feature extraction
@@ -35,7 +36,7 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
     
     target_embedding = target_embedding.unsqueeze(0)
 
-    return target_feat,target_embedding
+    return target_feat,target_embedding,feat_dims
 
 def get_sim_map(predictor:SamPredictor,target_feat:torch.Tensor)->torch.Tensor:
     test_feat = predictor.features.squeeze()
@@ -130,8 +131,8 @@ def predict_mask_refined(
 
     def get_best_log_distance(arr:list[any],target:any):
         log_arr = torch.log(torch.tensor(arr))
-        log_target = torch.log(torch.tesor(target))
-        log_dist = torch.abs(log_arr - log_target)
+        log_target = torch.log(torch.tensor(target))
+        log_dist = torch.abs(log_arr.cpu() - log_target.cpu())
         return torch.argmin(log_dist)
 
     # Experiments!
@@ -144,16 +145,16 @@ def predict_mask_refined(
     elif mask_picking_method in ["linear_combo","best_idx","best_idx_iou"]:
         logit_weights = mask_picking_data
         # Weighted sum of three-scale masks
-        logits_high = logits_high * logit_weights.unsqueeze(-1)
+        logits_high = logits_high * logit_weights[...,None,None]
         logit_high = logits_high.sum(0)
         mask = (logit_high > 0).detach().cpu().numpy()
 
         logit_weights_np = logit_weights.detach().cpu().numpy()
 
-        logits = logits * logit_weights_np[..., None]
+        logits = logits * logit_weights_np[..., None,None]
         logit = logits.sum(0)
     elif mask_picking_method == "area":
-        areas = torch.stack([torch.sum(masks[idx]) for idx in range(3)])
+        areas = torch.tensor([masks[idx].sum().tolist() for idx in range(3)])
         ref_area = mask_picking_data
         best_idx = get_best_log_distance(areas, ref_area)
     elif mask_picking_method in ["bbox_area","perimeter"]:

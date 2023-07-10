@@ -23,7 +23,7 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
         raise ValueError(f"Invalid experiment name {experiment_name}")
 
     print("Loading reference image...")
-    ref_img,ref_mask = load_image(predictor,ref_img_path,ref_mask_path)
+    ref_img,ref_mask,feat_dims = load_image(predictor,ref_img_path,ref_mask_path)
 
     target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
 
@@ -60,6 +60,9 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
             elif experiment_name == "area":
                 ref_area = torch.sum(ref_mask>0)
             elif experiment_name in ["bbox_area","perimeter"]:
+                ref_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
+                ref_mask = ref_mask.squeeze()[0]
+                print(np.nonzeros(ref_mask))
                 box = mask_to_box(ref_mask)
                 width = box[2] - box[0]
                 height = box[3] - box[1]
@@ -116,7 +119,7 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
     gt_mask = TVF.resize(gt_mask.float(), resolution)
     gt_mask = gt_mask.flatten(1).cuda()
 
-    masks = TVF.resize(torch.from_numpy(masks), resolution).flatten(1)
+    masks = TVF.resize(torch.from_numpy(masks), resolution).flatten(1).cuda()
 
     # Figure out which logit/mask combination to use.
 
