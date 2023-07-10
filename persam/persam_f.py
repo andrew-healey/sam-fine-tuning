@@ -23,9 +23,9 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
         raise ValueError(f"Invalid experiment name {experiment_name}")
 
     print("Loading reference image...")
-    ref_img,ref_mask,feat_dims = load_image(predictor,ref_img_path,ref_mask_path)
+    ref_img,ref_mask = load_image(predictor,ref_img_path,ref_mask_path)
 
-    target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
+    target_feat,target_embedding,feat_dims = get_mask_embed(predictor,ref_mask,should_normalize)
 
     mkdirp(output_dir)
 
@@ -60,10 +60,9 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
             elif experiment_name == "area":
                 ref_area = torch.sum(ref_mask>0)
             elif experiment_name in ["bbox_area","perimeter"]:
-                ref_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
-                ref_mask = ref_mask.squeeze()[0]
-                print(np.nonzeros(ref_mask))
-                box = mask_to_box(ref_mask)
+                gt_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
+                gt_mask = gt_mask.squeeze()[0]
+                box = mask_to_box(gt_mask.cpu().detach().numpy())[0]
                 width = box[2] - box[0]
                 height = box[3] - box[1]
                 ref_area = width * height

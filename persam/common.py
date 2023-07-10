@@ -158,7 +158,7 @@ def predict_mask_refined(
         ref_area = mask_picking_data
         best_idx = get_best_log_distance(areas, ref_area)
     elif mask_picking_method in ["bbox_area","perimeter"]:
-        boxes = [mask_to_box(masks[idx]) for idx in range(3)]
+        boxes = [mask_to_box(masks[idx])[0] for idx in range(3)]
         widths = [box[2] - box[0] for box in boxes]
         heights = [box[3] - box[1] for box in boxes]
 
