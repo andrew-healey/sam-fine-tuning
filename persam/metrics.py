@@ -3,11 +3,12 @@ from load import *
 
 import cv2
 
-def semseg_miou(gt_mask_dir:str,output_dir:str):
-    running_sum = 0
-    running_count = 0
+def semseg_iou(gt_mask_dir:str,output_dir:str):
+    running_intersection = 0
+    running_union = 0
 
     masks_in_dir = load_images_in_dir(gt_mask_dir)
+
     for gt_mask_name,gt_mask_path in masks_in_dir:
         output_mask_path = os.path.join(output_dir,gt_mask_name+".png")
         if os.path.exists(output_mask_path):
@@ -17,12 +18,12 @@ def semseg_miou(gt_mask_dir:str,output_dir:str):
             intersection = np.logical_and(output_mask,gt_mask).sum()
             union = np.logical_or(output_mask,gt_mask).sum()
 
-            iou = intersection / union if union > 0 else 1
-            running_sum += iou
-            running_count += 1
+            running_intersection += intersection
+            running_union += union
+
+    iou = running_intersection / (running_union+1e-10)
     
-    miou = running_sum / running_count if running_count >0 else 1
-    return miou
+    return iou
 
 import argparse
 
@@ -45,7 +46,7 @@ if __name__ == "__main__":
     for output_dir in glob.glob(args.output_dir_glob):
         gt_dir = [d for d in gt_dirs if os.path.basename(d) == os.path.basename(output_dir)][0]
 
-        miou = semseg_miou(gt_dir,output_dir)
+        miou = semseg_iou(gt_dir,output_dir)
         g = os.path.basename(gt_dir)
         print(f"{g}: {round(miou,3)}")
         num_dirs+=1
