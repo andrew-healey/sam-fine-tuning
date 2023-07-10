@@ -53,14 +53,15 @@ def save_mask(mask:torch.Tensor,mask_path:str):
 def mkdirp(dir:str):
     os.makedirs(dir,exist_ok=True)
 
-def load_dirs(ref_img_glob:str,ref_mask_glob:str,test_img_dir_glob:str,output_super_dir:str):
-    ref_img_paths = glob.glob(ref_img_glob)
-    ref_mask_paths = glob.glob(ref_mask_glob)
+def zip_globs(*globs):
+    evalled = [glob.glob(glob) for glob in globs]
+    zipped = zip(*evalled)
+    return zipped
 
-    test_img_dirs = glob.glob(test_img_dir_glob)
+def load_dirs(ref_img_glob:str,ref_mask_glob:str,test_img_dir_glob:str,output_super_dir:str):
 
     mkdirp(output_super_dir)
     
-    for ref_img_path,ref_mask_path,test_img_dir in zip(ref_img_paths,ref_mask_paths,test_img_dirs):
+    for ref_img_path,ref_mask_path,test_img_dir in zip_globs(ref_img_glob,ref_mask_glob,test_img_dir_glob):
         output_dir = os.path.join(output_super_dir,os.path.basename(test_img_dir))
         yield ref_img_path,ref_mask_path,test_img_dir,output_dir
