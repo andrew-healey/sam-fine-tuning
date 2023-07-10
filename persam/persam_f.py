@@ -116,7 +116,7 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
     gt_mask = TVF.resize(gt_mask.float(), resolution)
     gt_mask = gt_mask.flatten(1).cuda()
 
-    masks = TVF.resize(masks, resolution).flatten(1)
+    masks = TVF.resize(torch.from_numpy(masks), resolution).flatten(1)
 
     # Figure out which logit/mask combination to use.
 
@@ -161,11 +161,8 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
     best_idx = -1
 
     if experiment_name == "best_idx":
-        masks = [masks[idx] for idx in range(3)]
-        print("masks",masks[0].shape,"gt_mask",gt_mask.shape)
-
-        dice_losses = [calculate_dice_loss(original_logits_high[idx],gt_mask) for idx in range(3)]
-        focal_losses = [calculate_sigmoid_focal_loss(original_logits_high[idx],gt_mask) for idx in range(3)]
+        dice_losses = [calculate_dice_loss(original_logits_high[None,idx],gt_mask) for idx in range(3)]
+        focal_losses = [calculate_sigmoid_focal_loss(original_logits_high[None,idx],gt_mask) for idx in range(3)]
         losses = [dice_losses[idx] + focal_losses[idx] for idx in range(3)]
         best_idx = torch.argmin(torch.stack(losses))
 
