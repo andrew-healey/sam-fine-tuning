@@ -58,6 +58,8 @@ def load_dirs(ref_img_glob:str,ref_mask_glob:str,test_img_dir_glob:str,output_su
     ref_mask_paths = glob.glob(ref_mask_glob)
 
     test_img_dirs = glob.glob(test_img_dir_glob)
+
+    mkdirp(output_super_dir)
     
     for ref_img_path,ref_mask_path,test_img_dir in zip(ref_img_paths,ref_mask_paths,test_img_dirs):
         output_dir = os.path.join(output_super_dir,os.path.basename(test_img_dir))

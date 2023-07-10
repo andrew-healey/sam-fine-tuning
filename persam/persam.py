@@ -37,7 +37,7 @@ def get_arguments():
 
     parser.add_argument('--ref_img', type=str, default='./data/Images/*/00.jpg')
     parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
-    parser.add_argument('--img_dir', type=str, default='./data/Images/*/')
+    parser.add_argument('--img_dir', type=str, default='./data/Images/*')
     parser.add_argument('--out_dir', type=str, default='output')
     parser.add_argument('--sam_type', type=str, default='vit_h')
     
