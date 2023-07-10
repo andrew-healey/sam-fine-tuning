@@ -43,7 +43,7 @@ if __name__ == "__main__":
     gt_dirs = glob.glob(args.gt_dir_glob)
 
     for output_dir in glob.glob(args.output_dir_glob):
-        gt_dir = gt_dirs.find(lambda d: os.path.basename(d) == os.path.basename(output_dir))
+        gt_dir = gt_dirs.filter(lambda d: os.path.basename(d) == os.path.basename(output_dir))[0]
 
         miou = semseg_miou(gt_dir,output_dir)
         g = os.path.basename(gt_dir)
