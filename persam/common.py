@@ -11,6 +11,8 @@ from torch.nn import functional as F
 
 import numpy as np
 
+eps = 1e-10
+
 # Assume the image is already loaded in the predictor
 def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize:bool=True)->Tuple[torch.Tensor,torch.Tensor]:
     ref_feat = predictor.features.squeeze().permute(1, 2, 0)
@@ -21,6 +23,10 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
 
     # Target feature extraction
     target_feat = ref_feat[ref_mask > 0]
+
+    if target_feat.shape[0] == 0:
+      target_feat = target_embedding = torch.zeros(1,256).cuda()
+      return target_feat,target_embedding,feat_dims
 
     target_feat_mean = target_feat.mean(0)
     target_feat_max = torch.max(target_feat, dim=0)[0]
@@ -34,7 +40,7 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
     else:
         target_feat = target_feat_mean.unsqueeze(0)
 
-    target_feat = target_feat / target_feat.norm(dim=-1, keepdim=True)
+    target_feat = target_feat / (eps + target_feat.norm(dim=-1, keepdim=True))
     
     target_embedding = target_embedding.unsqueeze(0)
 
@@ -45,7 +51,7 @@ def get_sim_map(predictor:SamPredictor,target_feat:torch.Tensor)->torch.Tensor:
 
     # Cosine similarity
     C, h, w = test_feat.shape
-    test_feat = test_feat / test_feat.norm(dim=0, keepdim=True)
+    test_feat = test_feat / (eps + test_feat.norm(dim=0, keepdim=True))
     test_feat = test_feat.reshape(C, h * w)
     sim = target_feat @ test_feat
 
@@ -57,7 +63,7 @@ def get_sim_map(predictor:SamPredictor,target_feat:torch.Tensor)->torch.Tensor:
         original_size=predictor.original_size
     ).squeeze()
 
-    sim = (sim - sim.mean()) / torch.std(sim)
+    sim = (sim - sim.mean()) / (eps + torch.std(sim))
     sim = sim.sigmoid_()
 
     return sim
@@ -108,8 +114,8 @@ def points_to_kwargs(points:Tuple[np.ndarray,np.ndarray])->Dict[str,np.ndarray]:
     }
 
 def cosine_similarity(x:torch.Tensor,y:torch.Tensor)->torch.Tensor:
-    x = x / x.norm(dim=-1, keepdim=True)
-    y = y / y.norm(dim=-1, keepdim=True)
+    x = x / (eps + x.norm(dim=-1, keepdim=True))
+    y = y / (eps + y.norm(dim=-1, keepdim=True))
     return x @ y.transpose(-1,-2)
 
 def predict_mask_refined(
