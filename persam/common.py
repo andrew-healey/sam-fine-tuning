@@ -32,7 +32,7 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
     if not should_normalize:
         target_feat = (target_feat_max / 2 + target_feat_mean / 2).unsqueeze(0)
 
-    target_feat = target_embedding / target_embedding.norm(dim=-1, keepdim=True)
+    target_feat = target_feat / target_feat.norm(dim=-1, keepdim=True)
     
     target_embedding = target_embedding.unsqueeze(0)
 

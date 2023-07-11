@@ -68,6 +68,9 @@ def persam_f(
                 mask_cv2 = cv2.imread(ref_mask_path)
                 mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
 
+                points = sim_map_to_points(sim_map,include_neg=False)
+                kwargs = points_to_kwargs(points)
+
                 logit_weights = get_logit_weights(predictor,mask_cv2,experiment_name,target_guidance,**kwargs)
             elif experiment_name == "clip_embedding":
                 raise NotImplementedError()
