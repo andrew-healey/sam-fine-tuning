@@ -55,13 +55,15 @@ def get_sim_map(predictor:SamPredictor,target_feat:torch.Tensor)->torch.Tensor:
         original_size=predictor.original_size
     ).squeeze()
 
+    sim = (sim - sim.mean()) / torch.std(sim)
+    sim = sim.sigmoid_()
+
     return sim
 
 def sim_map_to_attn(sim_map:torch.Tensor)->torch.Tensor:
     # Obtain the target guidance for cross-attention layers
-    sim_map = (sim_map - sim_map.mean()) / torch.std(sim_map)
     sim_map = F.interpolate(sim_map.unsqueeze(0).unsqueeze(0), size=(64, 64), mode="bilinear")
-    attn_sim = sim_map.sigmoid_().unsqueeze(0).flatten(3)
+    attn_sim = sim_map.unsqueeze(0).flatten(3)
 
     return attn_sim
 
@@ -182,7 +184,7 @@ def predict_mask_refined(
         raise NotImplementedError()
     elif mask_picking_method == "sim":
         # get average similarity score across each mask
-        sim_map = mask_picking_data
+        sim_map = mask_picking_data.cpu().detach().numpy()
         filtered_maps = [sim_map * mask for mask in masks]
         sim_scores = [torch.mean(filtered_map) for filtered_map in filtered_maps]
         best_idx = torch.argmax(sim_scores)

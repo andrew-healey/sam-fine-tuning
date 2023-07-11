@@ -80,7 +80,7 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
             elif experiment_name == "sam_embedding":
                 mask_picking_data = (target_embedding,should_normalize)
             elif experiment_name == "sim":
-                mask_picking_data = attn_sim
+                mask_picking_data = sim_map
 
             mask = predict_mask_refined(predictor,target_guidance,experiment_name,mask_picking_data,**kwargs)
 
