@@ -30,9 +30,11 @@ def get_arguments():
     parser.add_argument('--ref_img', type=str, default='./data/Images/*/00.jpg')
     parser.add_argument('--ref_mask', type=str, default='./data/Annotations/*/00.png')
     parser.add_argument('--img_dir', type=str, default='./data/Images/*')
+    parser.add_argument('--gt_dir', type=str, default='./data/Annotations/*')
     parser.add_argument('--out_dir', type=str, default='output')
 
     parser.add_argument('--sam_type', type=str, default='vit_h')
+    parser.add_argument('--sweep_count', type=int, default=50)
     
     args = parser.parse_args()
     return args
@@ -66,9 +68,9 @@ def main():
     running_iou = 0
     num_dirs = 0
 
-    gt_dirs = glob.glob(args.gt_dir_glob)
+    gt_dirs = glob.glob(args.gt_dir)
 
-    for output_dir in glob.glob(args.output_dir_glob):
+    for output_dir in glob.glob(args.out_dir):
         gt_dir = [d for d in gt_dirs if os.path.basename(d) == os.path.basename(output_dir)][0]
 
         miou = semseg_iou(gt_dir,output_dir)
@@ -83,4 +85,4 @@ def main():
     })
 
 # Start sweep job.
-wandb.agent(sweep_id, function=main, count=4)
+wandb.agent(sweep_id, function=main, count=args.sweep_count)
