@@ -113,7 +113,7 @@ def predict_mask_refined(
         target_guidance:Dict[str,torch.Tensor],
         mask_picking_method:str,
         mask_picking_data:Optional[np.ndarray]=None,
-        # use_box:bool=True,
+        use_box:bool=True,
         **kwargs
     )->torch.Tensor:
 
@@ -199,7 +199,7 @@ def predict_mask_refined(
         logit = logits[best_idx]
 
     # Cascaded Post-refinement-1
-    box = mask_to_box(mask) if get_single_mask else None
+    box = mask_to_box(mask) if use_box else None
 
     masks, scores, logits, _ = predictor.predict(
         **kwargs,

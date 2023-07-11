@@ -17,7 +17,17 @@ FT_EXPERIMENT_NAMES=[
     "max_score", # Mask with highest score
 ]
 
-def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_dir:str,output_dir:str, experiment_name:str,should_normalize:bool):
+def persam_f(
+        predictor:SamPredictor,
+        ref_img_path:str,
+        ref_mask_path:str,
+        test_img_dir:str,
+        output_dir:str,
+        experiment_name:str,
+        should_normalize:bool,
+        use_box:bool,
+        use_guidance:bool,
+    ):
 
     if experiment_name not in FT_EXPERIMENT_NAMES:
         raise ValueError(f"Invalid experiment name {experiment_name}")
@@ -46,7 +56,7 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
         points = sim_map_to_points(sim_map)
 
         kwargs = points_to_kwargs(points)
-        target_guidance = {} if is_ref else {
+        target_guidance = {} if use_guidance else {
             "attn_sim":attn_sim,  # Target-guided Attention
             "target_embedding":target_embedding  # Target-semantic Prompting
         }
@@ -82,7 +92,7 @@ def persam_f(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img
             elif experiment_name == "sim":
                 mask_picking_data = sim_map
 
-            mask = predict_mask_refined(predictor,target_guidance,experiment_name,mask_picking_data,**kwargs)
+            mask = predict_mask_refined(predictor,target_guidance,experiment_name,mask_picking_data,use_box,**kwargs)
 
             mask_path = os.path.join(output_dir,test_img_name+".png")
             save_mask(mask,mask_path)
@@ -241,6 +251,8 @@ def get_arguments():
     parser.add_argument('--sam_type', type=str, default='vit_h')
     parser.add_argument('--experiment', type=str, default='single')
     parser.add_argument('--norm', type=bool, default=False)
+    parser.add_argument('--use_box', type=bool, default=True)
+    parser.add_argument('--use_guidance', type=bool, default=True)
     
     args = parser.parse_args()
     return args
@@ -252,6 +264,8 @@ if __name__ == "__main__":
 
     experiment_name = args.experiment
     should_normalize = args.norm
+    use_box = args.use_box
+    use_guidance = args.use_guidance
 
     print("Loading SAM...")
     # Load the predictor
@@ -262,6 +276,6 @@ if __name__ == "__main__":
 
     for ref_img_path,ref_mask_path,test_img_dir,output_dir in load_dirs(args.ref_img,args.ref_mask,args.img_dir,args.out_dir):
         print(f"Processing {test_img_dir}...")
-        persam_f(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir,experiment_name,should_normalize)
+        persam_f(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir,experiment_name,should_normalize,use_box,use_guidance)
 
     print("Done!")

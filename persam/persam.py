@@ -33,6 +33,7 @@ def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_d
             # Pick a single mask
             "single",
             None,
+            use_box=False,
             **kwargs
         )
 
