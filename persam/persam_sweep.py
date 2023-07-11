@@ -31,9 +31,13 @@ def get_arguments():
     parser.add_argument("--no-box", dest="box", action="store_false")
     parser.set_defaults(box=True)
 
-    parser.add_argument("--guidance", action="store_true")
-    parser.add_argument("--no-guidance", dest="guidance", action="store_false")
-    parser.set_defaults(guidance=True)
+    parser.add_argument("--attn", action="store_true")
+    parser.add_argument("--no-attn", dest="attn", action="store_false")
+    parser.set_defaults(attn=True)
+
+    parser.add_argument("--embed", action="store_true")
+    parser.add_argument("--no-embed", dest="embed", action="store_false")
+    parser.set_defaults(embed=True)
 
     parser.add_argument("--neg", action="store_true")
     parser.add_argument("--no-neg", dest="neg", action="store_false")
@@ -48,7 +52,8 @@ def main():
         experiment_name = args.experiment
         should_normalize = args.norm
         use_box = args.use_box
-        use_guidance = args.use_guidance
+        use_attn = args.attn
+        use_embed = args.embed
         include_neg = args.neg
         sam_type = args.sam_type
     else:
@@ -56,7 +61,8 @@ def main():
         experiment_name = wandb.config.ft
         use_box = wandb.config.use_box
         should_normalize = wandb.config.norm
-        use_guidance = wandb.config.use_guidance
+        use_attn = wandb.config.attn
+        use_embed = wandb.config.embed
         include_neg = wandb.config.neg
         sam_type = args.sam_type
 
@@ -80,7 +86,9 @@ def main():
             experiment_name,
             should_normalize,
             use_box,
-            use_guidance,
+            use_attn,
+            use_embed,
+            include_neg,
         )
 
     print("done with inference")
@@ -125,7 +133,8 @@ sweep_configuration = {
         "ft": {"values": FT_EXPERIMENT_NAMES},
         "use_box": {"values": BOX_EXPERIMENT_VALUES},
         "norm": {"values": NORM_EXPERIMENT_VALUES},
-        "use_guidance": {"values": GUIDANCE_EXPERIMENT_VALUES},
+        "attn": {"values": ATTN_EXPERIMENT_VALUES},
+        "embed": {"values": EMBED_EXPERIMENT_VALUES},
         "neg": {"values": NEG_EXPERIMENT_VALUES},
     },
 }

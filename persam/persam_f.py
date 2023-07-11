@@ -1,7 +1,7 @@
 from common import *
 from load import *
 
-NEG_EXPERIMENT_VALUES = GUIDANCE_EXPERIMENT_VALUES = BOX_EXPERIMENT_VALUES = NORM_EXPERIMENT_VALUES = [
+NEG_EXPERIMENT_VALUES = ATTN_EXPERIMENT_VALUES = EMBED_EXPERIMENT_VALUES = BOX_EXPERIMENT_VALUES = NORM_EXPERIMENT_VALUES = [
     True,
     False,
 ]
@@ -30,7 +30,8 @@ def persam_f(
     experiment_name: str,
     should_normalize: bool,
     use_box: bool,
-    use_guidance: bool,
+    use_attn: bool,
+    use_embed: bool,
     include_neg: bool,
 ):
     if experiment_name not in FT_EXPERIMENT_NAMES:
@@ -64,14 +65,11 @@ def persam_f(
         points = sim_map_to_points(sim_map,include_neg)
 
         kwargs = points_to_kwargs(points)
-        target_guidance = (
-            {
-                "attn_sim": attn_sim,  # Target-guided Attention
-                "target_embedding": target_embedding,  # Target-semantic Prompting
-            }
-            if use_guidance
-            else {}
-        )
+        target_guidance = {}
+        if use_attn:
+            target_guidance["attn_sim"] = attn_sim
+        if use_embed:
+            target_guidance["target_embedding"] = target_embedding
 
         # Experiments!
         if is_ref:
@@ -322,9 +320,13 @@ def get_arguments():
     parser.add_argument("--no-box", dest="box", action="store_false")
     parser.set_defaults(box=True)
 
-    parser.add_argument("--guidance", action="store_true")
-    parser.add_argument("--no-guidance", dest="guidance", action="store_false")
-    parser.set_defaults(guidance=True)
+    parser.add_argument("--attn", action="store_true")
+    parser.add_argument("--no-attn", dest="attn", action="store_false")
+    parser.set_defaults(attn=True)
+
+    parser.add_argument("--embed", action="store_true")
+    parser.add_argument("--no-embed", dest="embed", action="store_false")
+    parser.set_defaults(embed=True)
 
     parser.add_argument("--neg", action="store_true")
     parser.add_argument("--no-neg", dest="neg", action="store_false")
@@ -341,7 +343,8 @@ if __name__ == "__main__":
     experiment_name = args.experiment
     should_normalize = args.norm
     use_box = args.box
-    use_guidance = args.guidance
+    use_attn = args.attn
+    use_embed = args.embed
     include_neg = args.neg
 
     print("Loading SAM...")
@@ -364,7 +367,8 @@ if __name__ == "__main__":
             experiment_name,
             should_normalize,
             use_box,
-            use_guidance,
+            use_attn,
+            use_embed,
             include_neg,
         )
 
