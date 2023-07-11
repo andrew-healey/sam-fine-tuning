@@ -18,8 +18,8 @@ def get_arguments():
     parser.add_argument("--num_agents", type=int, default=1)
     parser.add_argument("--sweep_count", type=int, default=50)
     parser.add_argument("--search_method", type=str, default="random")
-
     parser.add_argument("--run_once", action="store_true")
+    parser.add_argument("--cache_encoder", action="store_true")
 
     parser.add_argument("--experiment", type=str, default="single")
 
@@ -70,7 +70,15 @@ def main():
     #
     # Inference
     #
-    predictor = load_predictor(sam_type=sam_type)
+
+    cache_encoder = args.cache_encoder
+
+    # Only actually *load* MobileSAM, but use cached SAM for inference
+    if cache_encoder:
+        predictor = load_predictor(sam_type="vit_t")
+        predictor.model.sam_type = sam_type
+    else:
+        predictor = load_predictor(sam_type=sam_type)
 
     rmrf(args.out_dir)
     mkdirp(args.out_dir)
