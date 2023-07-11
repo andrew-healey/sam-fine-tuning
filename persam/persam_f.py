@@ -56,15 +56,19 @@ def persam_f(
         points = sim_map_to_points(sim_map)
 
         kwargs = points_to_kwargs(points)
-        target_guidance = {} if use_guidance else {
+        target_guidance = {
             "attn_sim":attn_sim,  # Target-guided Attention
             "target_embedding":target_embedding  # Target-semantic Prompting
-        }
+        } if use_guidance else {}
 
         # Experiments!
         if is_ref: 
             if experiment_name in ["linear_combo","best_idx","best_idx_iou"]:
-                logit_weights = get_logit_weights(predictor,ref_mask,experiment_name,target_guidance,**kwargs)
+
+                mask_cv2 = cv2.imread(ref_mask_path)
+                mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
+
+                logit_weights = get_logit_weights(predictor,mask_cv2,experiment_name,target_guidance,**kwargs)
             elif experiment_name == "clip_embedding":
                 raise NotImplementedError()
             elif experiment_name == "area":
@@ -116,7 +120,7 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
     # Simulated first-step prediction
     masks, scores, logits, original_logits_high = predictor.predict(
         **kwargs,
-        **target_guidance,
+        # **target_guidance,
         multimask_output=True
     )
 
@@ -250,9 +254,19 @@ def get_arguments():
 
     parser.add_argument('--sam_type', type=str, default='vit_h')
     parser.add_argument('--experiment', type=str, default='single')
-    parser.add_argument('--norm', type=bool, default=False)
-    parser.add_argument('--use_box', type=bool, default=True)
-    parser.add_argument('--use_guidance', type=bool, default=True)
+
+    # TODO: rename this to "mean"
+    parser.add_argument('--norm', action='store_true')
+    parser.add_argument('--no-norm',dest='norm',action='store_false')
+    parser.set_defaults(norm=True)
+
+    parser.add_argument('--box', action='store_true')
+    parser.add_argument('--no-box',dest='box',action='store_false')
+    parser.set_defaults(box=True)
+    
+    parser.add_argument('--guidance', action='store_true')
+    parser.add_argument('--no-guidance',dest='guidance',action='store_false')
+    parser.set_defaults(guidance=True)
     
     args = parser.parse_args()
     return args
@@ -264,8 +278,8 @@ if __name__ == "__main__":
 
     experiment_name = args.experiment
     should_normalize = args.norm
-    use_box = args.use_box
-    use_guidance = args.use_guidance
+    use_box = args.box
+    use_guidance = args.guidance
 
     print("Loading SAM...")
     # Load the predictor

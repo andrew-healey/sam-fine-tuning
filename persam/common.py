@@ -29,10 +29,10 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
 
     # Two modes: normalize or not
     # We use should_normalize for PerSAM and not for PerSAM_f
-    if should_normalize:
-        target_feat = target_embedding / target_embedding.norm(dim=-1, keepdim=True)
-    else:
+    if not should_normalize:
         target_feat = (target_feat_max / 2 + target_feat_mean / 2).unsqueeze(0)
+
+    target_feat = target_embedding / target_embedding.norm(dim=-1, keepdim=True)
     
     target_embedding = target_embedding.unsqueeze(0)
 
@@ -87,11 +87,13 @@ def get_extrema(sim_map:torch.Tensor, topk=1)->Tuple[np.ndarray,np.ndarray,np.nd
     
     return topk_xy, topk_label, last_xy, last_label
 
-def sim_map_to_points(sim_map:torch.Tensor)->Tuple[np.ndarray,np.ndarray]:
+def sim_map_to_points(sim_map:torch.Tensor,include_neg:bool=True)->Tuple[np.ndarray,np.ndarray]:
     # Positive-negative location prior
-    topk_xy_i, topk_label_i, last_xy_i, last_label_i = get_extrema(sim_map, topk=1)
-    topk_xy = np.concatenate([topk_xy_i, last_xy_i], axis=0)
-    topk_label = np.concatenate([topk_label_i, last_label_i], axis=0)
+    topk_xy, topk_label, last_xy, last_label = get_extrema(sim_map, topk=1)
+
+    if include_neg:
+      topk_xy = np.concatenate([topk_xy, last_xy], axis=0)
+      topk_label = np.concatenate([topk_label, last_label], axis=0)
 
     # Positive location prior
     return topk_xy, topk_label
