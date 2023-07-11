@@ -166,7 +166,7 @@ def get_logit_weights(predictor:SamPredictor,ref_mask:torch.Tensor,experiment_na
 
 
         mask_weights.eval()
-        weights = torch.cat((1 - mask_weights.weights.sum(0).unsqueeze(0), mask_weights.weights), dim=0)
+        weights = torch.cat((1 - mask_weights.weights.sum(0).unsqueeze(0), mask_weights.weights), dim=0).squeeze(1)
 
         return weights
 

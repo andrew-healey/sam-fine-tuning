@@ -4,7 +4,7 @@ from metrics import semseg_iou
 
 # Define sweep config
 sweep_configuration = {
-    'method': 'random',
+    'method': 'grid',
     'name': 'sweep',
     'metric': {'goal': 'maximize', 'name': 'miou'},
     'parameters': 
@@ -35,25 +35,39 @@ def get_arguments():
 
     parser.add_argument('--sam_type', type=str, default='vit_h')
     parser.add_argument('--sweep_count', type=int, default=50)
+
+    parser.add_argument('--run_once', action='store_true')
+
+    parser.add_argument('--sam_type', type=str, default='vit_h')
+    parser.add_argument('--experiment', type=str, default='single')
+    parser.add_argument('--norm', type=bool, default=False)
+    parser.add_argument('--use_box', type=bool, default=True)
+    parser.add_argument('--use_guidance', type=bool, default=True)
     
     args = parser.parse_args()
     return args
 
 
 def main():
-    run = wandb.init()
 
-    # note that we define values from `wandb.config`  
-    # instead of defining hard values
-    experiment_name =  wandb.config.ft
-    use_box = wandb.config.use_box
-    should_normalize = wandb.config.norm
-    use_guidance = wandb.config.use_guidance
+    if run_once:
+        experiment_name = args.experiment
+        should_normalize = args.norm
+        use_box = args.use_box
+        use_guidance = args.use_guidance
+        sam_type = args.sam_type
+    else:
+        run = wandb.init()
+        experiment_name =  wandb.config.ft
+        use_box = wandb.config.use_box
+        should_normalize = wandb.config.norm
+        use_guidance = wandb.config.use_guidance
+        sam_type = 'vit_t'
 
     #
     # Inference
     #
-    predictor = load_predictor(sam_type='vit_t')
+    predictor = load_predictor(sam_type=sam_type)
 
     rmrf(args.out_dir)
     mkdirp(args.out_dir)
@@ -87,5 +101,11 @@ def main():
     })
 
 args = get_arguments()
-# Start sweep job.
-wandb.agent(sweep_id, function=main, count=args.sweep_count)
+run_once = args.run_once
+
+if run_once:
+    main()
+    exit()
+else:
+    # Start sweep job.
+    wandb.agent(sweep_id, function=main, count=args.sweep_count)

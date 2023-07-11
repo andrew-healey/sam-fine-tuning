@@ -149,7 +149,7 @@ def predict_mask_refined(
         # Weighted sum of three-scale masks
         logits_high = logits_high * logit_weights[...,None,None]
         logit_high = logits_high.sum(0)
-        mask = (logit_high > 0).detach().cpu().numpy()
+        mask = (logit_high > 0)
 
         logit_weights_np = logit_weights.detach().cpu().numpy()
 
