@@ -6,13 +6,25 @@ import torch
 
 import cv2
 
+from sam_cache import *
 
 def load_image(
-    predictor: SamPredictor, image_path: str, mask_path: Optional[str] = None
+    predictor: SamPredictor,
+    image_path: str,
+    mask_path: Optional[str] = None,
+    use_cache: bool = True,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     image = cv2.imread(image_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    predictor.set_image(image)
+
+    if use_cache:
+        if has_cached_output(predictor, image_path):
+            load_cached_output(predictor, image_path)
+        else:
+            predictor.set_image(image)
+            cache_output(predictor, image_path)
+    else:
+        predictor.set_image(image)
 
     if mask_path is None:
         mask = None
@@ -33,6 +45,8 @@ def load_predictor(sam_type: str = "vit_h") -> SamPredictor:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         sam = sam_model_registry[sam_type](checkpoint=sam_ckpt).to(device=device)
         sam.eval()
+    
+    sam.sam_type = sam_type
 
     predictor = SamPredictor(sam)
 
