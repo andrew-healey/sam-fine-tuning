@@ -226,6 +226,8 @@ def predict_mask_refined(
 
 def mask_to_box(mask:torch.Tensor)->np.ndarray:
     y, x = np.nonzero(mask)
+    if len(x) == 0 or len(y) == 0:
+        return np.array([0,0,0,0])
     x_min = x.min()
     x_max = x.max()
     y_min = y.min()
