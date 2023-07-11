@@ -184,9 +184,10 @@ def predict_mask_refined(
         raise NotImplementedError()
     elif mask_picking_method == "sim":
         # get average similarity score across each mask
-        sim_map = mask_picking_data.cpu().detach().numpy()
-        filtered_maps = [sim_map * mask for mask in masks]
-        sim_scores = [torch.mean(filtered_map) for filtered_map in filtered_maps]
+        sim_map = mask_picking_data
+        torch_masks = torch.from_numpy(masks).to(torch.float).cuda()
+        filtered_maps = [sim_map * mask for mask in torch_masks]
+        sim_scores = torch.stack([torch.mean(filtered_map) for filtered_map in filtered_maps])
         best_idx = torch.argmax(sim_scores)
     elif mask_picking_method == "max_score":
         best_idx = torch.argmax(torch.tensor(scores))
