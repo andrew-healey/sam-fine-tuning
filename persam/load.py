@@ -8,7 +8,7 @@ import cv2
 
 import os
 def mkdirp(dir: str):
-    os.makedirs(dir, exist_ok=True,parents=True)
+    os.makedirs(dir, exist_ok=True)
 
 
 import shutil
