@@ -6,6 +6,16 @@ import torch
 
 import cv2
 
+def mkdirp(dir: str):
+    os.makedirs(dir, exist_ok=True)
+
+
+import shutil
+
+def rmrf(dir: str):
+    if os.path.exists(dir):
+        shutil.rmtree(dir)
+
 from sam_cache import *
 
 def load_image(
@@ -72,17 +82,6 @@ def save_mask(mask: torch.Tensor, mask_path: str):
     mask_colors[mask, :] = np.array([[0, 0, 128]])
     cv2.imwrite(mask_path, mask_colors)
 
-
-def mkdirp(dir: str):
-    os.makedirs(dir, exist_ok=True)
-
-
-import shutil
-
-
-def rmrf(dir: str):
-    if os.path.exists(dir):
-        shutil.rmtree(dir)
 
 
 def zip_globs(*globs):
