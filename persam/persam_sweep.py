@@ -60,6 +60,8 @@ def main():
 
     for ref_img_path,ref_mask_path,test_img_dir,output_dir in load_dirs(args.ref_img,args.ref_mask,args.img_dir,args.out_dir):
         persam_f(predictor,ref_img_path,ref_mask_path,test_img_dir,output_dir,experiment_name,should_normalize,use_box,use_guidance)
+    
+    print("done with inference")
 
     #
     # Evaluation
@@ -69,7 +71,7 @@ def main():
 
     gt_dirs = glob.glob(args.gt_dir)
 
-    for output_dir in glob.glob(args.out_dir):
+    for output_dir in glob.glob(os.path.join(args.out_dir,"*")):
         gt_dir = [d for d in gt_dirs if os.path.basename(d) == os.path.basename(output_dir)][0]
 
         miou = semseg_iou(gt_dir,output_dir)
@@ -78,6 +80,7 @@ def main():
         running_iou+=miou
     
     miou = running_iou / num_dirs
+    print("miou: ",miou)
     
     wandb.log({
         'miou': miou,
