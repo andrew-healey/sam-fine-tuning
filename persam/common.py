@@ -174,6 +174,7 @@ def predict_mask_refined(
         logits = logits * logit_weights_np[..., None, None]
         logit = logits.sum(0)
     elif mask_picking_method == "area":
+        print("area",masks.shape)
         areas = torch.tensor([masks[idx].sum().tolist() for idx in range(3)])
         ref_area = mask_picking_data
         best_idx = get_best_log_distance(areas, ref_area)

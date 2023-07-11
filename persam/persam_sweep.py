@@ -2,23 +2,6 @@ import wandb
 from persam_f import *
 from metrics import semseg_iou
 
-# Define sweep config
-sweep_configuration = {
-    "method": "grid",
-    "name": "sweep",
-    "metric": {"goal": "maximize", "name": "miou"},
-    "parameters": {
-        "ft": {"values": FT_EXPERIMENT_NAMES},
-        "use_box": {"values": BOX_EXPERIMENT_VALUES},
-        "norm": {"values": NORM_EXPERIMENT_VALUES},
-        "use_guidance": {"values": GUIDANCE_EXPERIMENT_VALUES},
-    },
-}
-
-# Initialize sweep by passing in config.
-# (Optional) Provide a name of the project.
-sweep_id = wandb.sweep(sweep=sweep_configuration, project="persam-sweep")
-
 import argparse
 
 
@@ -33,6 +16,7 @@ def get_arguments():
 
     parser.add_argument("--sam_type", type=str, default="vit_h")
     parser.add_argument("--sweep_count", type=int, default=50)
+    parser.add_argument("--search_method", type=str, default="random")
 
     parser.add_argument("--run_once", action="store_true")
 
@@ -51,6 +35,10 @@ def get_arguments():
     parser.add_argument("--no-guidance", dest="guidance", action="store_false")
     parser.set_defaults(guidance=True)
 
+    parser.add_argument("--neg", action="store_true")
+    parser.add_argument("--no-neg", dest="neg", action="store_false")
+    parser.set_defaults(neg=True)
+
     args = parser.parse_args()
     return args
 
@@ -61,6 +49,7 @@ def main():
         should_normalize = args.norm
         use_box = args.use_box
         use_guidance = args.use_guidance
+        include_neg = args.neg
         sam_type = args.sam_type
     else:
         run = wandb.init()
@@ -68,7 +57,8 @@ def main():
         use_box = wandb.config.use_box
         should_normalize = wandb.config.norm
         use_guidance = wandb.config.use_guidance
-        sam_type = "vit_t"
+        include_neg = wandb.config.neg
+        sam_type = args.sam_type
 
     #
     # Inference
@@ -125,6 +115,25 @@ def main():
 
 args = get_arguments()
 run_once = args.run_once
+
+# Define sweep config
+sweep_configuration = {
+    "method": args.search_method,
+    "name": "sweep",
+    "metric": {"goal": "maximize", "name": "miou"},
+    "parameters": {
+        "ft": {"values": FT_EXPERIMENT_NAMES},
+        "use_box": {"values": BOX_EXPERIMENT_VALUES},
+        "norm": {"values": NORM_EXPERIMENT_VALUES},
+        "use_guidance": {"values": GUIDANCE_EXPERIMENT_VALUES},
+        "neg": {"values": NEG_EXPERIMENT_VALUES},
+    },
+}
+
+# Initialize sweep by passing in config.
+# (Optional) Provide a name of the project.
+sweep_id = wandb.sweep(sweep=sweep_configuration, project="persam-sweep")
+
 
 if run_once:
     main()

@@ -1,7 +1,7 @@
 from common import *
 from load import *
 
-GUIDANCE_EXPERIMENT_VALUES = BOX_EXPERIMENT_VALUES = NORM_EXPERIMENT_VALUES = [
+NEG_EXPERIMENT_VALUES = GUIDANCE_EXPERIMENT_VALUES = BOX_EXPERIMENT_VALUES = NORM_EXPERIMENT_VALUES = [
     True,
     False,
 ]
@@ -31,6 +31,7 @@ def persam_f(
     should_normalize: bool,
     use_box: bool,
     use_guidance: bool,
+    include_neg: bool,
 ):
     if experiment_name not in FT_EXPERIMENT_NAMES:
         raise ValueError(f"Invalid experiment name {experiment_name}")
@@ -60,7 +61,7 @@ def persam_f(
 
         sim_map = get_sim_map(predictor, target_feat)
         attn_sim = sim_map_to_attn(sim_map)
-        points = sim_map_to_points(sim_map)
+        points = sim_map_to_points(sim_map,include_neg)
 
         kwargs = points_to_kwargs(points)
         target_guidance = (
@@ -74,28 +75,34 @@ def persam_f(
 
         # Experiments!
         if is_ref:
-            if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
-                mask_cv2 = cv2.imread(ref_mask_path)
-                mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
 
-                points = sim_map_to_points(sim_map, include_neg=False)
-                kwargs = points_to_kwargs(points)
+            mask_cv2 = cv2.imread(ref_mask_path)
+            mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
+            gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
+
+            if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
 
                 logit_weights = get_logit_weights(
-                    predictor, mask_cv2, experiment_name, target_guidance, **kwargs
+                    predictor, gt_mask, experiment_name, target_guidance, **kwargs
                 )
             elif experiment_name == "clip_embedding":
                 raise NotImplementedError()
-            elif experiment_name == "area":
-                ref_area = torch.sum(ref_mask > 0)
-            elif experiment_name in ["bbox_area", "perimeter"]:
-                gt_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
-                gt_mask = gt_mask.squeeze()[0]
-                box = mask_to_box(gt_mask.cpu().detach().numpy())[0]
-                width = box[2] - box[0]
-                height = box[3] - box[1]
-                ref_area = width * height
-                ref_perimeter = 2 * (width + height)
+            elif experiment_name in ["area", "bbox_area", "perimeter"]:
+                masks, _,_ = predictor.predict(
+                    multimask_output=True,
+                )
+                mask_dims = masks.shape[-2:]
+                right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=mask_dims, mode="bilinear")[0,0] > 0
+                if experiment_name == "area":
+
+                    ref_area = torch.sum(right_sized_mask > 0)
+                    pdb.set_trace()
+                elif experiment_name in ["bbox_area", "perimeter"]:
+                    box = mask_to_box(right_sized_mask.cpu().detach().numpy())[0]
+                    width = box[2] - box[0]
+                    height = box[3] - box[1]
+                    ref_area = width * height
+                    ref_perimeter = 2 * (width + height)
         else:
             mask_picking_data = None
             if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
@@ -137,7 +144,7 @@ log_epoch = 200
 
 def get_logit_weights(
     predictor: SamPredictor,
-    ref_mask: torch.Tensor,
+    gt_mask: torch.Tensor,
     experiment_name: str,
     target_guidance: Dict[str, torch.Tensor],
     **kwargs,
@@ -158,7 +165,6 @@ def get_logit_weights(
     original_logits_high = TVF.resize(original_logits_high, resolution)
     original_logits_high = original_logits_high.flatten(1)
 
-    gt_mask = torch.tensor(ref_mask)[None, :, :, 0] > 0
     gt_mask = TVF.resize(gt_mask.float(), resolution)
     gt_mask = gt_mask.flatten(1).cuda()
 
@@ -320,10 +326,15 @@ def get_arguments():
     parser.add_argument("--no-guidance", dest="guidance", action="store_false")
     parser.set_defaults(guidance=True)
 
+    parser.add_argument("--neg", action="store_true")
+    parser.add_argument("--no-neg", dest="neg", action="store_false")
+    parser.set_defaults(neg=True)
+
     args = parser.parse_args()
     return args
 
 
+import pdb
 if __name__ == "__main__":
     args = get_arguments()
 
@@ -331,6 +342,7 @@ if __name__ == "__main__":
     should_normalize = args.norm
     use_box = args.box
     use_guidance = args.guidance
+    include_neg = args.neg
 
     print("Loading SAM...")
     # Load the predictor
@@ -353,6 +365,7 @@ if __name__ == "__main__":
             should_normalize,
             use_box,
             use_guidance,
+            include_neg,
         )
 
     print("Done!")
