@@ -4,10 +4,10 @@ from load import *
 def persam(predictor:SamPredictor, ref_img_path:str,ref_mask_path:str,test_img_dir:str,output_dir:str):
 
     print("Loading reference image...")
-    ref_img,ref_mask,_ = load_image(predictor,ref_img_path,ref_mask_path)
+    ref_img,ref_mask = load_image(predictor,ref_img_path,ref_mask_path)
 
     should_normalize = True
-    target_feat,target_embedding = get_mask_embed(predictor,ref_mask,should_normalize)
+    target_feat,target_embedding,_ = get_mask_embed(predictor,ref_mask,should_normalize)
 
     mkdirp(output_dir)
 
