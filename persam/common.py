@@ -17,7 +17,7 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
 
     feat_dims = ref_feat.shape[0: 2]
     ref_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
-    ref_mask = ref_mask.squeeze()[0]
+    ref_mask = ref_mask[0,0]
 
     # Target feature extraction
     target_feat = ref_feat[ref_mask > 0]
@@ -174,8 +174,9 @@ def predict_mask_refined(
             best_idx = get_best_log_distance(perimeters, ref_perimeter)
     elif mask_picking_method == "sam_embedding":
         sam_embedding,should_normalize = mask_picking_data
-        mask_embeds = [get_mask_embed(predictor,masks[idx],should_normalize) for idx in range(3)]
-        cosine_similarities = [cosine_similarity(sam_embedding,mask_embed) for mask_embed in mask_embeds]
+        torch_masks = torch.from_numpy(masks).to(torch.float).cuda()
+        mask_embeds = [get_mask_embed(predictor,torch_masks[None,None,idx],should_normalize)[1] for idx in range(3)]
+        cosine_similarities = torch.stack([cosine_similarity(sam_embedding,mask_embed) for mask_embed in mask_embeds])
         best_idx = torch.argmax(cosine_similarities)
     elif mask_picking_method == "clip_embedding":
         raise NotImplementedError()
