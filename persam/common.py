@@ -187,7 +187,7 @@ def predict_mask_refined(
         sim_scores = [torch.mean(filtered_map) for filtered_map in filtered_maps]
         best_idx = torch.argmax(sim_scores)
     elif mask_picking_method == "max_score":
-        best_idx = torch.argmax(scores)
+        best_idx = torch.argmax(torch.tensor(scores))
     
 
     # Only extract "best" mask if best_idx is set
