@@ -47,8 +47,13 @@ def get_arguments():
     args = parser.parse_args()
     return args
 
+def run_with_id(fn, id):
+    def wrapper():
+        fn(id)
+    return wrapper
 
-def main():
+def main(id:int=None):
+    print("id:", id)
     if run_once:
         experiment_name = args.experiment
         should_normalize = args.norm
@@ -75,16 +80,22 @@ def main():
 
     # Only actually *load* MobileSAM, but use cached SAM for inference
     if cache_encoder:
+        print("caching encoder")
         predictor = load_predictor(sam_type="vit_t")
         predictor.model.sam_type = sam_type
     else:
         predictor = load_predictor(sam_type=sam_type)
+    
+    if id is not None:
+        out_dir = os.path.join(args.out_dir, str(id))
+    else:
+        out_dir = args.out_dir
 
-    rmrf(args.out_dir)
-    mkdirp(args.out_dir)
+    rmrf(out_dir)
+    mkdirp(out_dir)
 
     for ref_img_path, ref_mask_path, test_img_dir, output_dir in load_dirs(
-        args.ref_img, args.ref_mask, args.img_dir, args.out_dir
+        args.ref_img, args.ref_mask, args.img_dir, out_dir
     ):
         persam_f(
             predictor,
@@ -110,7 +121,7 @@ def main():
 
     gt_dirs = glob.glob(args.gt_dir)
 
-    for output_dir in glob.glob(os.path.join(args.out_dir, "*")):
+    for output_dir in glob.glob(os.path.join(out_dir, "*")):
         gt_dir = [
             d for d in gt_dirs if os.path.basename(d) == os.path.basename(output_dir)
         ][0]
@@ -126,8 +137,11 @@ def main():
     wandb.log(
         {
             "miou": miou,
+            "id": id,
         }
     )
+
+    rmrf(out_dir)
 
 
 args = get_arguments()
@@ -162,8 +176,9 @@ else:
     runs_per_agent = ceil(args.sweep_count / num_agents)
     import multiprocessing
     
-    def run_agent(_):
-        wandb.agent(sweep_id, function=main, count=runs_per_agent)
+    def run_agent(id):
+        my_main = run_with_id(main, id)
+        wandb.agent(sweep_id, function=my_main, count=runs_per_agent)
 
     with multiprocessing.Pool(num_agents) as p:
         p.map(run_agent, range(num_agents))
