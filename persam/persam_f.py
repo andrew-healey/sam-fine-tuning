@@ -1,6 +1,8 @@
 from common import *
 from load import *
 
+GUIDANCE_EXPERIMENT_VALUES = \
+BOX_EXPERIMENT_VALUES = \
 NORM_EXPERIMENT_VALUES=[True,False]
 
 FT_EXPERIMENT_NAMES=[

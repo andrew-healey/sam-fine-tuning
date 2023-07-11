@@ -10,9 +10,9 @@ sweep_configuration = {
     'parameters': 
     {
         'ft': {'values': FT_EXPERIMENT_NAMES},
-        'use_box': {'values': [True,False]},
-        'norm': {'values':[True, False]},
-        'use_guidance': {'values':[True, False]},
+        'use_box': {'values': BOX_EXPERIMENT_VALUES},
+        'norm': {'values':NORM_EXPERIMENT_VALUES},
+        'use_guidance': {'values':GUIDANCE_EXPERIMENT_VALUES},
      }
 }
 
