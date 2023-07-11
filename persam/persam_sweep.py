@@ -154,7 +154,7 @@ else:
     runs_per_agent = ceil(args.sweep_count / num_agents)
     import multiprocessing
     
-    def run_agent():
+    def run_agent(_):
         wandb.agent(sweep_id, function=main, count=runs_per_agent)
 
     with multiprocessing.Pool(num_agents) as p:

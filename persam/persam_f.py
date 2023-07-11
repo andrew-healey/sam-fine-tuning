@@ -94,7 +94,6 @@ def persam_f(
                 if experiment_name == "area":
 
                     ref_area = torch.sum(right_sized_mask > 0)
-                    pdb.set_trace()
                 elif experiment_name in ["bbox_area", "perimeter"]:
                     box = mask_to_box(right_sized_mask.cpu().detach().numpy())[0]
                     width = box[2] - box[0]

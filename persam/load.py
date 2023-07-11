@@ -46,6 +46,7 @@ def load_image(
 
     return image, mask
 
+
 def load_predictor(sam_type: str = "vit_h") -> SamPredictor:
     if sam_type == "vit_h":
         sam_type, sam_ckpt = "vit_h", "weights/sam_vit_h_4b8939.pth"
