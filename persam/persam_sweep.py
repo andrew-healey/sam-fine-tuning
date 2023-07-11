@@ -38,11 +38,20 @@ def get_arguments():
 
     parser.add_argument('--run_once', action='store_true')
 
-    parser.add_argument('--sam_type', type=str, default='vit_h')
     parser.add_argument('--experiment', type=str, default='single')
-    parser.add_argument('--norm', type=bool, default=False)
-    parser.add_argument('--use_box', type=bool, default=True)
-    parser.add_argument('--use_guidance', type=bool, default=True)
+
+    # TODO: rename this to "mean"
+    parser.add_argument('--norm', action='store_true')
+    parser.add_argument('--no-norm',dest='norm',action='store_false')
+    parser.set_defaults(norm=True)
+
+    parser.add_argument('--box', action='store_true')
+    parser.add_argument('--no-box',dest='box',action='store_false')
+    parser.set_defaults(box=True)
+    
+    parser.add_argument('--guidance', action='store_true')
+    parser.add_argument('--no-guidance',dest='guidance',action='store_false')
+    parser.set_defaults(guidance=True)
     
     args = parser.parse_args()
     return args
