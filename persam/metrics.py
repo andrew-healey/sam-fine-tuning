@@ -38,7 +38,7 @@ def get_arguments():
 if __name__ == "__main__":
     args = get_arguments()
 
-    running_miou = 0
+    running_iou = 0
     num_dirs = 0
 
     gt_dirs = glob.glob(args.gt_dir_glob)
@@ -50,8 +50,8 @@ if __name__ == "__main__":
         g = os.path.basename(gt_dir)
         print(f"{g}: {round(miou,3)}")
         num_dirs+=1
-        running_miou+=miou
+        running_iou+=miou
     
-    avg_miou = running_miou / num_dirs
-    print(f"mIoU: {round(avg_miou,3)}")
+    miou = running_iou / num_dirs
+    print(f"mIoU: {round(miou,3)}")
     
