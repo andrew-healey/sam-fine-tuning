@@ -45,6 +45,9 @@ def load_cached_output(predictor:SamPredictor,img_path:str):
     """
     sam_type = predictor.model.sam_type
     cached_output_path = os.path.join("sam_cache",sam_type,img_path+".pt")
+    cached_output_folder = os.path.dirname(cached_output_path)
+    mkdirp(cached_output_folder)
+
     original_size,input_size,features = torch.load(cached_output_path)
 
     predictor.original_size = original_size

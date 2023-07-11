@@ -6,8 +6,9 @@ import torch
 
 import cv2
 
+import os
 def mkdirp(dir: str):
-    os.makedirs(dir, exist_ok=True)
+    os.makedirs(dir, exist_ok=True,parents=True)
 
 
 import shutil
@@ -63,7 +64,6 @@ def load_predictor(sam_type: str = "vit_h") -> SamPredictor:
     return predictor
 
 
-import os
 import glob
 
 
