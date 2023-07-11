@@ -41,7 +41,6 @@ def get_arguments():
 
 
 def main():
-    args = get_arguments()
     run = wandb.init()
 
     # note that we define values from `wandb.config`  
@@ -84,5 +83,6 @@ def main():
         'miou': miou,
     })
 
+args = get_arguments()
 # Start sweep job.
 wandb.agent(sweep_id, function=main, count=args.sweep_count)
