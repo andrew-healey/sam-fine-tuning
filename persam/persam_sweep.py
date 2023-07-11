@@ -15,6 +15,7 @@ def get_arguments():
     parser.add_argument("--out_dir", type=str, default="output")
 
     parser.add_argument("--sam_type", type=str, default="vit_h")
+    parser.add_argument("--num_agents", type=int, default=1)
     parser.add_argument("--sweep_count", type=int, default=50)
     parser.add_argument("--search_method", type=str, default="random")
 
@@ -148,5 +149,13 @@ if run_once:
     main()
     exit()
 else:
-    # Start sweep job.
-    wandb.agent(sweep_id, function=main, count=args.sweep_count)
+    from math import ceil
+    num_agents = args.num_agents
+    runs_per_agent = ceil(args.sweep_count / num_agents)
+    import multiprocessing
+    
+    def run_agent():
+        wandb.agent(sweep_id, function=main, count=runs_per_agent)
+
+    with multiprocessing.Pool(num_agents) as p:
+        p.map(run_agent, range(num_agents))
