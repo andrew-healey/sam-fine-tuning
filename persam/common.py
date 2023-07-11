@@ -31,6 +31,8 @@ def get_mask_embed(predictor:SamPredictor,ref_mask:torch.Tensor,should_normalize
     # We use should_normalize for PerSAM and not for PerSAM_f
     if not should_normalize:
         target_feat = (target_feat_max / 2 + target_feat_mean / 2).unsqueeze(0)
+    else:
+        target_feat = target_feat_mean.unsqueeze(0)
 
     target_feat = target_feat / target_feat.norm(dim=-1, keepdim=True)
     
