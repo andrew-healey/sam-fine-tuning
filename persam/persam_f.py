@@ -33,6 +33,7 @@ def persam_f(
     use_attn: bool,
     use_embed: bool,
     include_neg: bool,
+    sim_probe: bool,
 ):
     if experiment_name not in FT_EXPERIMENT_NAMES:
         raise ValueError(f"Invalid experiment name {experiment_name}")
@@ -59,8 +60,18 @@ def persam_f(
         print(f"Processing {test_img_name}...")
         if not is_ref:
             load_image(predictor, test_img_path)
+        if is_ref:
+            mask_cv2 = cv2.imread(ref_mask_path)
+            mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
+            gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
 
-        sim_map = get_sim_map(predictor, target_feat)
+        if is_ref and sim_probe:
+            sim_weights = get_linear_probe_weights(predictor,target_feat,gt_mask)
+            assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
+        else:
+            sim_weights = target_feat
+
+        sim_map = get_sim_map(predictor, sim_weights)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
@@ -76,11 +87,6 @@ def persam_f(
 
         # Experiments!
         if is_ref:
-
-            mask_cv2 = cv2.imread(ref_mask_path)
-            mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
-            gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
-
             if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
 
                 logit_weights = get_logit_weights(
@@ -144,6 +150,7 @@ lr = 1e-3
 train_epoch = 1000
 log_epoch = 200
 
+resolution = [256, 256]
 
 def get_logit_weights(
     predictor: SamPredictor,
@@ -164,7 +171,6 @@ def get_logit_weights(
         multimask_output=True,
     )
 
-    resolution = [256, 256]
     original_logits_high = TVF.resize(original_logits_high, resolution)
     original_logits_high = original_logits_high.flatten(1)
 
@@ -300,6 +306,62 @@ def calculate_sigmoid_focal_loss(
         loss = alpha_t * loss
 
     return loss.mean(1).sum() / num_masks
+
+probe_lr = 1e-3
+probe_train_epoch = 1000
+probe_log_epoch = 200
+eps = 1e-10
+
+def get_linear_probe_weights(
+        predictor: SamPredictor,
+        target_feat: torch.Tensor, # Shape (1, C, H, W)
+        gt_mask: torch.Tensor,
+)-> torch.Tensor:
+ 
+    gt_mask = TVF.resize(gt_mask.float(), resolution)
+    gt_mask = gt_mask.flatten(1).cuda()
+
+    target_feat = TVF.resize(target_feat, resolution).flatten(2).permute(2,0,1).squeeze(1)
+    target_feat = target_feat / (eps + target_feat.norm(dim=0,keepdim=True))
+    HW,C = target_feat.shape
+
+    assert target_feat.shape[0] == gt_mask.shape[0],f"Shape mismatch: {target_feat.shape} vs {gt_mask.shape}"
+    assert target_feat.device == gt_mask.device, f"Device mismatch: {target_feat.device} vs {gt_mask.device}"
+
+    # Learn a (C,) vector of weights which should make attn_sim look like gt_mask
+    probe = LinearSimilarityProbe(C).cuda()
+
+    optimizer = torch.optim.Adam(probe.parameters(), lr=probe_lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=probe_train_epoch)
+    probe.train()
+
+    for epoch in range(probe_train_epoch):
+        optimizer.zero_grad()
+        loss,dice,focal = probe(target_feat, gt_mask)
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+
+        if epoch % probe_log_epoch == 0:
+            print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} focal: {focal.item()}")
+    probe.eval()
+    return probe.weights
+
+class LinearSimilarityProbe(nn.Module):
+    def __init__(self, num_channels: int):
+        super().__init__()
+        # shape (C)
+        self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
+    def forward(self,
+                feat: torch.Tensor, # shape (HW, C)
+                gt_mask: torch.Tensor, # shape (HW)
+                )->torch.Tensor: # shape (,)
+        sim_map = feat @ self.weights # shape (HW)
+
+        dice_loss = calculate_dice_loss(sim_map, gt_mask)
+        focal_loss = calculate_sigmoid_focal_loss(sim_map, gt_mask)
+
+        return dice_loss + focal_loss,dice_loss,focal_loss
 
 
 import argparse
