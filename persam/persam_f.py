@@ -70,10 +70,11 @@ def persam_f(
             right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
             print("ref_mask.shape", ref_mask.shape)
             print("right_sized_mask.shape", right_sized_mask.shape)
-            sim_weights = get_linear_probe_weights(predictor,ref_feat,gt_mask)
+            sim_weights,sim_bias = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
             assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
         else:
             sim_weights = target_feat
+            sim_bias = None
 
         sim_map = get_sim_map(predictor, sim_weights)
         attn_sim = sim_map_to_attn(sim_map)
@@ -311,26 +312,29 @@ def calculate_sigmoid_focal_loss(
 
     return loss.mean(1).sum() / num_masks
 
-probe_lr = 1e-3
+probe_lr = 3e-2
 probe_train_epoch = 1000
 probe_log_epoch = 200
 eps = 1e-10
 
 def get_linear_probe_weights(
         predictor: SamPredictor,
-        target_feat: torch.Tensor, # Shape (1, C, H, W)
+        target_feat: torch.Tensor, # Shape (C, H, W)
         gt_mask: torch.Tensor, # Shape (H,W)
 )-> torch.Tensor:
  
-    gt_mask = gt_mask.flatten(1).cuda()
+    gt_mask = gt_mask.flatten().cuda()
 
-    print("target_feat.shape", target_feat.shape)
-    target_feat = TVF.resize(target_feat, resolution).flatten(2).permute(2,0,1).squeeze(1)
+    # convert to (HW,C)
+    target_feat = target_feat.flatten(1).permute(1,0)
     target_feat = target_feat / (eps + target_feat.norm(dim=0,keepdim=True))
     HW,C = target_feat.shape
 
     assert target_feat.shape[0] == gt_mask.shape[0],f"Shape mismatch: {target_feat.shape} vs {gt_mask.shape}"
     assert target_feat.device == gt_mask.device, f"Device mismatch: {target_feat.device} vs {gt_mask.device}"
+
+    target_feat = target_feat[None,...]
+    gt_mask = gt_mask[None,...].to(torch.float32)
 
     # Learn a (C,) vector of weights which should make attn_sim look like gt_mask
     probe = LinearSimilarityProbe(C).cuda()
@@ -348,19 +352,19 @@ def get_linear_probe_weights(
 
         if epoch % probe_log_epoch == 0:
             print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} focal: {focal.item()}")
-    probe.eval()
-    return probe.weights
+    return  probe.weights[None,...].detach(),probe.bias.detach()
 
 class LinearSimilarityProbe(nn.Module):
     def __init__(self, num_channels: int):
         super().__init__()
         # shape (C)
         self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
+        self.bias = nn.Parameter(torch.zeros(1, requires_grad=True))
     def forward(self,
-                feat: torch.Tensor, # shape (HW, C)
-                gt_mask: torch.Tensor, # shape (HW)
+                feat: torch.Tensor, # shape (1,HW, C)
+                gt_mask: torch.Tensor, # shape (1,HW)
                 )->torch.Tensor: # shape (,)
-        sim_map = feat @ self.weights # shape (HW)
+        sim_map = feat @ self.weights + self.bias # shape (1,HW)
 
         dice_loss = calculate_dice_loss(sim_map, gt_mask)
         focal_loss = calculate_sigmoid_focal_loss(sim_map, gt_mask)

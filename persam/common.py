@@ -50,13 +50,13 @@ def get_mask_embed(
     return target_feat, target_embedding, feat_dims
 
 
-def get_sim_map(predictor: SamPredictor, sim_weights:torch.Tensor) -> torch.Tensor:
+def get_sim_map(predictor: SamPredictor, sim_weights:torch.Tensor,sim_bias:torch.Tensor) -> torch.Tensor:
     test_feat = predictor.features.squeeze()
 
     C, h, w = test_feat.shape
     test_feat = test_feat / (eps + test_feat.norm(dim=0, keepdim=True))
     test_feat = test_feat.reshape(C, h * w)
-    sim = sim_weights @ test_feat
+    sim = sim_weights @ test_feat + sim_bias
 
     sim = sim.reshape(1, 1, h, w)
     sim = F.interpolate(sim, scale_factor=4, mode="bilinear")
