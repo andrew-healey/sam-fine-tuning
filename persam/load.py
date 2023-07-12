@@ -78,8 +78,8 @@ import numpy as np
 
 def save_mask(mask: Union[np.ndarray,torch.Tensor], mask_path: str):
     if isinstance(mask, torch.Tensor):
-        mask = mask.cpu().numpy()
-    mask_colors = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
+        mask = mask.to(torch.float32).cpu().numpy()
+    mask_colors = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
     mask_colors[:,:,0] = 128
     mask_colors *= mask[:,:,None]
     cv2.imwrite(mask_path, mask_colors)
