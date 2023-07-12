@@ -67,7 +67,9 @@ def persam_f(
 
         if is_ref and sim_probe:
             ref_feat = predictor.features.squeeze()
-            print("ref_feat.shape", ref_feat.shape)
+            right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
+            print("ref_mask.shape", ref_mask.shape)
+            print("right_sized_mask.shape", right_sized_mask.shape)
             sim_weights = get_linear_probe_weights(predictor,ref_feat,gt_mask)
             assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
         else:
@@ -317,10 +319,9 @@ eps = 1e-10
 def get_linear_probe_weights(
         predictor: SamPredictor,
         target_feat: torch.Tensor, # Shape (1, C, H, W)
-        gt_mask: torch.Tensor,
+        gt_mask: torch.Tensor, # Shape (H,W)
 )-> torch.Tensor:
  
-    gt_mask = TVF.resize(gt_mask.float(), resolution)
     gt_mask = gt_mask.flatten(1).cuda()
 
     print("target_feat.shape", target_feat.shape)
