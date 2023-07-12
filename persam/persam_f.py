@@ -321,7 +321,8 @@ def get_linear_probe_weights(
     gt_mask = TVF.resize(gt_mask.float(), resolution)
     gt_mask = gt_mask.flatten(1).cuda()
 
-    target_feat = TVF.resize(target_feat, resolution).flatten(2).permute(2,0,1).squeeze(1)
+    print("target_feat.shape", target_feat.shape)
+    target_feat = TVF.resize(target_feat[None,...], resolution).flatten(2).permute(2,0,1).squeeze(1)
     target_feat = target_feat / (eps + target_feat.norm(dim=0,keepdim=True))
     HW,C = target_feat.shape
 
