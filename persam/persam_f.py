@@ -69,12 +69,11 @@ def persam_f(
                 ref_feat = predictor.features.squeeze()
                 right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
                 sim_probe = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
-                # assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
             else:
                 sim_probe = None
 
         with torch.no_grad():
-            sim_map = get_sim_map(predictor, sim_weights,sim_probe)
+            sim_map = get_sim_map(predictor, target_feat,sim_probe)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
