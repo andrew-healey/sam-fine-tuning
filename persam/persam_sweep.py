@@ -57,7 +57,7 @@ def main(id:int=None):
     if run_once:
         experiment_name = args.experiment
         should_normalize = args.norm
-        use_box = args.use_box
+        use_box = args.box
         use_attn = args.attn
         use_embed = args.embed
         include_neg = args.neg
@@ -134,18 +134,23 @@ def main(id:int=None):
     miou = running_iou / num_dirs
     print("miou: ", miou)
 
-    wandb.log(
-        {
-            "miou": miou,
-            "id": id,
-        }
-    )
+    if not run_once:
+        wandb.log(
+            {
+                "miou": miou,
+                "id": id,
+            }
+        )
 
-    rmrf(out_dir)
+        rmrf(out_dir)
 
 
 args = get_arguments()
 run_once = args.run_once
+
+if run_once:
+    main()
+    exit()
 
 # Define sweep config
 sweep_configuration = {
@@ -167,18 +172,14 @@ sweep_configuration = {
 sweep_id = wandb.sweep(sweep=sweep_configuration, project="persam-sweep")
 
 
-if run_once:
-    main()
-    exit()
-else:
-    from math import ceil
-    num_agents = args.num_agents
-    runs_per_agent = ceil(args.sweep_count / num_agents)
-    import multiprocessing
-    
-    def run_agent(id):
-        my_main = run_with_id(main, id)
-        wandb.agent(sweep_id, function=my_main, count=runs_per_agent)
+from math import ceil
+num_agents = args.num_agents
+runs_per_agent = ceil(args.sweep_count / num_agents)
+import multiprocessing
 
-    with multiprocessing.Pool(num_agents) as p:
-        p.map(run_agent, range(num_agents))
+def run_agent(id):
+    my_main = run_with_id(main, id)
+    wandb.agent(sweep_id, function=my_main, count=runs_per_agent)
+
+with multiprocessing.Pool(num_agents) as p:
+    p.map(run_agent, range(num_agents))
