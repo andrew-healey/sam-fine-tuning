@@ -7,6 +7,7 @@ from typing import Tuple, Optional, Dict, Any
 from segment_anything import SamPredictor
 
 import torch
+from torch import nn
 from torch.nn import functional as F
 
 import numpy as np
@@ -50,13 +51,17 @@ def get_mask_embed(
     return target_feat, target_embedding, feat_dims
 
 
-def get_sim_map(predictor: SamPredictor, sim_weights:torch.Tensor,sim_bias:torch.Tensor) -> torch.Tensor:
+def get_sim_map(predictor: SamPredictor, sim_weights:torch.Tensor,sim_probe:Optional[nn.Module]) -> torch.Tensor:
     test_feat = predictor.features.squeeze()
 
     C, h, w = test_feat.shape
     test_feat = test_feat / (eps + test_feat.norm(dim=0, keepdim=True))
     test_feat = test_feat.reshape(C, h * w)
-    sim = sim_weights @ test_feat + sim_bias
+    if sim_probe is None:
+        sim = sim_weights @ test_feat
+    else:
+        with torch.no_grad():
+            sim = sim_probe(test_feat)
 
     sim = sim.reshape(1, 1, h, w)
     sim = F.interpolate(sim, scale_factor=4, mode="bilinear")

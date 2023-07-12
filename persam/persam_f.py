@@ -68,13 +68,13 @@ def persam_f(
             if sim_probe:
                 ref_feat = predictor.features.squeeze()
                 right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
-                sim_weights,sim_bias = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
-                assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
+                sim_probe = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
+                # assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
             else:
-                sim_weights = target_feat
-                sim_bias = None
+                sim_probe = None
 
-        sim_map = get_sim_map(predictor, sim_weights,sim_bias)
+        with torch.no_grad():
+            sim_map = get_sim_map(predictor, sim_weights,sim_probe)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
@@ -350,19 +350,29 @@ def get_linear_probe_weights(
 
         if epoch % probe_log_epoch == 0:
             print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} focal: {focal.item()}")
-    return  probe.weights[None,...].detach(),probe.bias.detach()
+    probe.eval()
+    return probe
 
+hidden_channels = 3
 class LinearSimilarityProbe(nn.Module):
     def __init__(self, num_channels: int):
         super().__init__()
         # shape (C)
-        self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
-        self.bias = nn.Parameter(torch.zeros(1, requires_grad=True))
+
+        self.m1 = nn.Linear(num_channels, hidden_channels)
+        self.m2 = nn.Linear(hidden_channels, 1)
+
+        # self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
+        # self.bias = nn.Parameter(torch.zeros(1, requires_grad=True))
     def forward(self,
                 feat: torch.Tensor, # shape (1,HW, C)
-                gt_mask: torch.Tensor, # shape (1,HW)
+                gt_mask: Optional[torch.Tensor]=None, # shape (1,HW)
                 )->torch.Tensor: # shape (,)
-        sim_map = feat @ self.weights + self.bias # shape (1,HW)
+        hidden = F.relu(self.m1(feat))
+        sim_map = self.m2(hidden).squeeze(2) # shape (1,HW)
+        # sim_map = feat @ self.weights + self.bias # shape (1,HW)
+        if not self.training:
+            return sim_map
 
         dice_loss = calculate_dice_loss(sim_map, gt_mask)
         focal_loss = calculate_sigmoid_focal_loss(sim_map, gt_mask)
