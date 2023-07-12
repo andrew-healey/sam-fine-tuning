@@ -65,18 +65,16 @@ def persam_f(
             mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
             gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
 
-        if is_ref and sim_probe:
-            ref_feat = predictor.features.squeeze()
-            right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
-            print("ref_mask.shape", ref_mask.shape)
-            print("right_sized_mask.shape", right_sized_mask.shape)
-            sim_weights,sim_bias = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
-            assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
-        else:
-            sim_weights = target_feat
-            sim_bias = None
+            if sim_probe:
+                ref_feat = predictor.features.squeeze()
+                right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
+                sim_weights,sim_bias = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
+                assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
+            else:
+                sim_weights = target_feat
+                sim_bias = None
 
-        sim_map = get_sim_map(predictor, sim_weights)
+        sim_map = get_sim_map(predictor, sim_weights,sim_bias)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
