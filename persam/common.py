@@ -60,6 +60,7 @@ def get_sim_map(predictor: SamPredictor, target_feat:torch.Tensor,sim_probe:Opti
     if sim_probe is None:
         sim = target_feat @ test_feat
     else:
+        test_feat = test_feat.permute(1, 0).unsqueeze(0)
         with torch.no_grad():
             sim = sim_probe(test_feat)
 
@@ -70,7 +71,7 @@ def get_sim_map(predictor: SamPredictor, target_feat:torch.Tensor,sim_probe:Opti
     ).squeeze()
 
     sim = (sim - sim.mean()) / (eps + torch.std(sim))
-    sim = sim.sigmoid_()
+    # sim = sim.sigmoid_()
 
     return sim
 
