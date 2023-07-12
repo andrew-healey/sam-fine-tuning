@@ -63,9 +63,9 @@ def persam_f(
         sim_map = get_sim_map(predictor, target_feat)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
-        
-        attn_path = os.path.join(output_dir, f"{test_img_name}_attn.png")
-        save_mask(attn_sim,attn_path)
+
+        sim_path = os.path.join(output_dir, f"{test_img_name}_sim.png")
+        save_mask(sim_map.squeeze(),sim_path)
 
         kwargs = points_to_kwargs(points)
         target_guidance = {}

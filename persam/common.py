@@ -152,7 +152,7 @@ def predict_mask_refined(
     )
 
     for i in range(len(masks)):
-        masks[f"first_{i}"] = masks[i]
+        mask_dict[f"first_{i}"] = masks[i]
 
     def get_best_log_distance(arr: list[any], target: any):
         log_arr = torch.log(torch.tensor(arr))
@@ -240,7 +240,7 @@ def predict_mask_refined(
     logit = logits[best_idx]
 
     for i in range(len(masks)):
-        masks[f"post1_{i}"] = masks[i]
+        mask_dict[f"post1_{i}"] = masks[i]
 
     # Cascaded Post-refinement-2
     box = mask_to_box(mask)
@@ -251,7 +251,7 @@ def predict_mask_refined(
     mask = masks[best_idx]
 
     for i in range(len(masks)):
-        masks[f"post2_{i}"] = masks[i]
+        mask_dict[f"post2_{i}"] = masks[i]
 
     return mask,mask_dict
 
