@@ -399,6 +399,8 @@ def get_arguments():
     parser.add_argument("--no-neg", dest="neg", action="store_false")
     parser.set_defaults(neg=True)
 
+    parser.add_argument("--sim-probe", action="store_true")
+
     args = parser.parse_args()
     return args
 
@@ -413,6 +415,7 @@ if __name__ == "__main__":
     use_attn = args.attn
     use_embed = args.embed
     include_neg = args.neg
+    sim_probe = args.sim_probe
 
     print("Loading SAM...")
     # Load the predictor
@@ -437,6 +440,7 @@ if __name__ == "__main__":
             use_attn,
             use_embed,
             include_neg,
+            sim_probe
         )
 
     print("Done!")
