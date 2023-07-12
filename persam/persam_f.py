@@ -66,7 +66,9 @@ def persam_f(
             gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
 
         if is_ref and sim_probe:
-            sim_weights = get_linear_probe_weights(predictor,target_feat,gt_mask)
+            ref_feat = predictor.features.squeeze()
+            print("ref_feat.shape", ref_feat.shape)
+            sim_weights = get_linear_probe_weights(predictor,ref_feat,gt_mask)
             assert sim_weights.shape == target_feat.shape, f"{sim_weights.shape} != {target_feat.shape}"
         else:
             sim_weights = target_feat
@@ -322,7 +324,7 @@ def get_linear_probe_weights(
     gt_mask = gt_mask.flatten(1).cuda()
 
     print("target_feat.shape", target_feat.shape)
-    target_feat = TVF.resize(target_feat[None,...], resolution).flatten(2).permute(2,0,1).squeeze(1)
+    target_feat = TVF.resize(target_feat, resolution).flatten(2).permute(2,0,1).squeeze(1)
     target_feat = target_feat / (eps + target_feat.norm(dim=0,keepdim=True))
     HW,C = target_feat.shape
 
