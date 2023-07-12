@@ -142,12 +142,17 @@ def predict_mask_refined(
         "high_res": True,
     }
 
+    mask_dict = {}
+
     get_single_mask = mask_picking_method == "single"
 
     # First-step prediction
     masks, scores, logits, logits_high = predictor.predict(
         **kwargs, **target_guidance, multimask_output=not get_single_mask
     )
+
+    for i in range(len(masks)):
+        masks[f"first_{i}"] = masks[i]
 
     def get_best_log_distance(arr: list[any], target: any):
         log_arr = torch.log(torch.tensor(arr))
@@ -234,6 +239,9 @@ def predict_mask_refined(
     mask = masks[best_idx]
     logit = logits[best_idx]
 
+    for i in range(len(masks)):
+        masks[f"post1_{i}"] = masks[i]
+
     # Cascaded Post-refinement-2
     box = mask_to_box(mask)
     masks, scores, logits, _ = predictor.predict(
@@ -242,7 +250,10 @@ def predict_mask_refined(
     best_idx = np.argmax(scores)
     mask = masks[best_idx]
 
-    return mask
+    for i in range(len(masks)):
+        masks[f"post2_{i}"] = masks[i]
+
+    return mask,mask_dict
 
 
 def mask_to_box(mask: torch.Tensor) -> np.ndarray:

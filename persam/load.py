@@ -76,13 +76,11 @@ def load_images_in_dir(dir: str) -> Generator[Tuple[str, str], None, None]:
 
 import numpy as np
 
-
-def save_mask(mask: torch.Tensor, mask_path: str):
+def save_mask(mask: np.ndarray, mask_path: str):
     mask_colors = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.uint8)
-    mask_colors[mask, :] = np.array([[0, 0, 128]])
+    mask_colors[:,:,0] = 128
+    mask_colors *= mask[:,:,None]
     cv2.imwrite(mask_path, mask_colors)
-
-
 
 def zip_globs(*globs):
     evalled = [glob.glob(g) for g in globs]

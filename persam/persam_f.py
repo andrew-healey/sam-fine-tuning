@@ -63,6 +63,9 @@ def persam_f(
         sim_map = get_sim_map(predictor, target_feat)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
+        
+        attn_path = os.path.join(output_dir, f"{test_img_name}_attn.png")
+        save_mask(attn_sim,attn_path)
 
         kwargs = points_to_kwargs(points)
         target_guidance = {}
@@ -115,7 +118,7 @@ def persam_f(
             elif experiment_name == "sim":
                 mask_picking_data = sim_map
 
-            mask = predict_mask_refined(
+            mask,mask_dict = predict_mask_refined(
                 predictor,
                 target_guidance,
                 experiment_name,
@@ -123,6 +126,9 @@ def persam_f(
                 use_box,
                 **kwargs,
             )
+
+            for k,v in mask_dict.items():
+                save_mask(v,os.path.join(output_dir,f"{test_img_name}_{k}.png"))
 
             mask_path = os.path.join(output_dir, test_img_name + ".png")
             save_mask(mask, mask_path)
