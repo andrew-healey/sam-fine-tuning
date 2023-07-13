@@ -20,6 +20,8 @@ FT_EXPERIMENT_NAMES = [
     "max_score",  # Mask with highest score
 ]
 
+from tqdm import tqdm
+
 def persam_f(
     predictor: SamPredictor,
     ref_img_path: str,
@@ -53,7 +55,7 @@ def persam_f(
     ref_img_pair = (f"REF_{os.path.basename(ref_img_path)}", ref_img_path)
     img_pairs = [ref_img_pair] + test_img_pairs
 
-    for test_img_name, test_img_path in img_pairs:
+    for test_img_name, test_img_path in tqdm(img_pairs):
         is_ref = test_img_path == ref_img_path
 
         if(should_log): print(f"Processing {test_img_name}...")
