@@ -68,7 +68,7 @@ def persam_f(
             if sim_probe:
                 ref_feat = predictor.features.squeeze()
                 right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
-                sim_probe = get_linear_probe_weights(predictor,ref_feat,right_sized_mask)
+                sim_probe = get_linear_probe_weights(predictor,ref_feat,target_feat[0],right_sized_mask)
             else:
                 sim_probe = None
 
@@ -78,7 +78,7 @@ def persam_f(
         points = sim_map_to_points(sim_map,include_neg)
 
         sim_path = os.path.join(output_dir, f"{test_img_name}_sim.png")
-        save_mask(sim_map.squeeze(),sim_path)
+        save_mask(sim_map.sigmoid().squeeze(),sim_path)
 
         kwargs = points_to_kwargs(points)
         target_guidance = {}
@@ -316,25 +316,26 @@ eps = 1e-10
 
 def get_linear_probe_weights(
         predictor: SamPredictor,
-        target_feat: torch.Tensor, # Shape (C, H, W)
+        ref_feat: torch.Tensor, # Shape (C, H, W)
+        target_feat: torch.Tensor, # Shape (C,)
         gt_mask: torch.Tensor, # Shape (H,W)
 )-> torch.Tensor:
  
     gt_mask = gt_mask.flatten().cuda()
 
     # convert to (HW,C)
-    target_feat = target_feat.flatten(1).permute(1,0)
-    target_feat = target_feat / (eps + target_feat.norm(dim=0,keepdim=True))
-    HW,C = target_feat.shape
+    ref_feat = ref_feat.flatten(1).permute(1,0)
+    ref_feat = ref_feat / (eps + ref_feat.norm(dim=0,keepdim=True))
+    HW,C = ref_feat.shape
 
-    assert target_feat.shape[0] == gt_mask.shape[0],f"Shape mismatch: {target_feat.shape} vs {gt_mask.shape}"
-    assert target_feat.device == gt_mask.device, f"Device mismatch: {target_feat.device} vs {gt_mask.device}"
+    assert ref_feat.shape[0] == gt_mask.shape[0],f"Shape mismatch: {ref_feat.shape} vs {gt_mask.shape}"
+    assert ref_feat.device == gt_mask.device, f"Device mismatch: {ref_feat.device} vs {gt_mask.device}"
 
-    target_feat = target_feat[None,...]
+    ref_feat = ref_feat[None,...]
     gt_mask = gt_mask[None,...].to(torch.float32)
 
     # Learn a (C,) vector of weights which should make attn_sim look like gt_mask
-    probe = LinearSimilarityProbe(C).cuda()
+    probe = LinearSimilarityProbe(C,target_feat).cuda()
 
     optimizer = torch.optim.Adam(probe.parameters(), lr=probe_lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=probe_train_epoch)
@@ -342,7 +343,7 @@ def get_linear_probe_weights(
 
     for epoch in range(probe_train_epoch):
         optimizer.zero_grad()
-        loss,dice,focal = probe(target_feat, gt_mask)
+        loss,dice,focal = probe(ref_feat, gt_mask)
         loss.backward()
         optimizer.step()
         scheduler.step()
@@ -354,11 +355,18 @@ def get_linear_probe_weights(
 
 hidden_channels = 3
 class LinearSimilarityProbe(nn.Module):
-    def __init__(self, num_channels: int):
+    def __init__(self, num_channels: int,target_feat: torch.Tensor):
         super().__init__()
         # shape (C)
+        assert target_feat.shape[0] == num_channels
 
+        # Initialize the probe with the target vector
         self.m1 = nn.Linear(num_channels, hidden_channels)
+        with torch.no_grad():
+            dummy_m1 = torch.zeros_like(self.m1.weight)
+            assert dummy_m1.shape == (hidden_channels, num_channels)
+            dummy_m1[0] = target_feat
+            self.m1.weight.copy_(dummy_m1)
         self.m2 = nn.Linear(hidden_channels, 1)
 
         # self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)

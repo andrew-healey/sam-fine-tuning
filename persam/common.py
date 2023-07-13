@@ -70,7 +70,7 @@ def get_sim_map(predictor: SamPredictor, target_feat:torch.Tensor,sim_probe:Opti
         sim, input_size=predictor.input_size, original_size=predictor.original_size
     ).squeeze()
 
-    sim = (sim - sim.mean()) / (eps + torch.std(sim))
+    # sim = (sim - sim.mean()) / (eps + torch.std(sim))
     # sim = sim.sigmoid_()
 
     return sim
