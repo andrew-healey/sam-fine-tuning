@@ -57,7 +57,7 @@ def persam_f(
         ref_imgs.append(ref_img)
         ref_feats.append(predictor.features)
 
-        target_feat, target_embedding, feat_dims = get_mask_embed(predictor,ref_mask,should_normalize)
+        target_feat, target_embedding, feat_dims = get_mask_embed(predictor.features,ref_mask,should_normalize)
         target_feats.append(target_feat)
         target_embeddings.append(target_embedding)
 
@@ -66,15 +66,16 @@ def persam_f(
         gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
         gt_masks.append(gt_mask)
 
-    target_feat = torch.mean(target_feats,dim=0)
-    target_embedding = torch.mean(target_embeddings,dim=0)
+    target_feat = torch.mean(torch.stack(target_feats),dim=0)[0]
+    target_embedding = torch.mean(torch.stack(target_embeddings),dim=0)
 
-    ref_feat = torch.stack(ref_feats,dim=0)
-    gt_mask = torch.stack(gt_masks,dim=0).to(torch.float)
+    ref_feat = torch.cat(ref_feats,dim=0)
+    gt_mask = torch.stack(gt_masks).to(torch.float)
 
     if sim_probe:
 
         right_sized_mask = F.interpolate(gt_mask, size=feat_dims, mode="bilinear")[:,0] > 0
+        right_sized_mask = right_sized_mask.to(torch.float)
         assert right_sized_mask.shape[0] == gt_mask.shape[0]
         assert right_sized_mask.shape[1:] == feat_dims
 
@@ -84,7 +85,7 @@ def persam_f(
 
     def get_prompts(ref_feat):
         with torch.no_grad():
-            sim_map = get_sim_map(ref_feat, target_feat,sim_probe)
+            sim_map = get_sim_map(predictor,ref_feat, target_feat,sim_probe)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
@@ -361,10 +362,10 @@ def get_linear_probe_weights(
         gt_mask: torch.Tensor, # Shape (N, H, W)
 )-> torch.Tensor:
  
-    gt_mask = gt_mask.flatten().cuda()
+    gt_mask = gt_mask.flatten(1).cuda()
 
     # convert to (N, HW,C)
-    ref_feat = ref_feat.flatten(-2).permute(0,2,1)
+    ref_feat = ref_feat.flatten(2).permute(0,2,1)
     ref_feat = ref_feat / (eps + ref_feat.norm(dim=1,keepdim=True))
     N,HW,C = ref_feat.shape
 
@@ -395,7 +396,7 @@ class LinearSimilarityProbe(nn.Module):
     def __init__(self, num_channels: int,target_feat: torch.Tensor):
         super().__init__()
         # shape (C)
-        assert target_feat.shape[0] == num_channels
+        assert target_feat.shape[0] == num_channels, f"Shape mismatch: {target_feat.shape} vs {num_channels}"
 
         # Initialize the probe with the target vector
         self.m1 = nn.Linear(num_channels, hidden_channels)

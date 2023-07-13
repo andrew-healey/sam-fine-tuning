@@ -51,8 +51,8 @@ def get_mask_embed(
     return target_feat, target_embedding, feat_dims
 
 
-def get_sim_map(predictor: SamPredictor, target_feat:torch.Tensor,sim_probe:Optional[nn.Module]) -> torch.Tensor:
-    test_feat = predictor.features.squeeze()
+def get_sim_map(predictor:SamPredictor, features: torch.Tensor, target_feat:torch.Tensor,sim_probe:Optional[nn.Module]) -> torch.Tensor:
+    test_feat = features.squeeze()
 
     C, h, w = test_feat.shape
     test_feat = test_feat / (eps + test_feat.norm(dim=0, keepdim=True))
