@@ -20,7 +20,6 @@ FT_EXPERIMENT_NAMES = [
     "max_score",  # Mask with highest score
 ]
 
-
 def persam_f(
     predictor: SamPredictor,
     ref_img_path: str,
@@ -57,7 +56,7 @@ def persam_f(
     for test_img_name, test_img_path in img_pairs:
         is_ref = test_img_path == ref_img_path
 
-        print(f"Processing {test_img_name}...")
+        if(should_log): print(f"Processing {test_img_name}...")
         if not is_ref:
             load_image(predictor, test_img_path)
         if is_ref:
@@ -140,7 +139,7 @@ def persam_f(
 
             mask_path = os.path.join(output_dir, test_img_name + ".png")
             save_mask(mask, mask_path)
-            print("Saved mask to", mask_path)
+            if should_log: print("Saved mask to", mask_path)
 
 
 import torch
@@ -423,10 +422,14 @@ def get_arguments():
     parser.set_defaults(neg=True)
 
     parser.add_argument("--sim-probe", action="store_true")
+    parser.add_argument("--log",action="store_true")
+
+    parser.add_argument("--hidden-dim", type=int, default=3)
 
     args = parser.parse_args()
     return args
 
+should_log = False
 
 import pdb
 if __name__ == "__main__":
@@ -439,6 +442,8 @@ if __name__ == "__main__":
     use_embed = args.embed
     include_neg = args.neg
     sim_probe = args.sim_probe
+    should_log = args.log
+    hidden_channels = args.hidden_dim
 
     print("Loading SAM...")
     # Load the predictor
