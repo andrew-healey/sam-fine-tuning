@@ -24,8 +24,8 @@ from tqdm import tqdm
 
 def persam_f(
     predictor: SamPredictor,
-    ref_img_paths: str,
-    ref_mask_path: str,
+    ref_img_dir: str,
+    ref_mask_dir: str,
     test_img_dir: str,
     output_dir: str,
     experiment_name: str,
@@ -39,25 +39,52 @@ def persam_f(
     if experiment_name not in FT_EXPERIMENT_NAMES:
         raise ValueError(f"Invalid experiment name {experiment_name}")
 
-    print("Loading reference image...")
-    ref_img, ref_mask = load_image(predictor, ref_img_path, ref_mask_path)
+    print("Loading reference images...")
 
-    target_feat, target_embedding, feat_dims = get_mask_embed(
-        predictor, ref_mask, should_normalize
-    )
+    ref_img_paths = [ref_img_path for _,ref_img_path in load_images_in_dir(ref_img_dir)]
+    ref_mask_paths = [ref_mask_path for _,ref_mask_path in load_images_in_dir(ref_mask_dir)]
 
-    mkdirp(output_dir)
+    ref_imgs = []
+    # ref_masks = []
+    ref_feats = []
+    target_feats = []
+    target_embeddings = []
+    feat_dims = None
+    gt_masks = []
 
-    raw_img_pairs = load_images_in_dir(test_img_dir)
-    test_img_pairs = [
-        img_pair for img_pair in raw_img_pairs if img_pair[1] != ref_img_path
-    ]
-    ref_img_pair = (f"REF_{os.path.basename(ref_img_path)}", ref_img_path)
-    img_pairs = [ref_img_pair] + test_img_pairs
+    for ref_img_path, ref_mask_path in zip(ref_img_paths, ref_mask_paths):
+        ref_img, ref_mask = load_image(predictor, ref_img_path, ref_mask_path)
+        ref_imgs.append(ref_img)
+        ref_feats.append(predictor.features)
 
-    def get_prompts():
+        target_feat, target_embedding, feat_dims = get_mask_embed(predictor,ref_mask,should_normalize)
+        target_feats.append(target_feat)
+        target_embeddings.append(target_embedding)
+
+        mask_cv2 = cv2.imread(ref_mask_path)
+        mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
+        gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
+        gt_masks.append(gt_mask)
+
+    target_feat = torch.mean(target_feats,dim=0)
+    target_embedding = torch.mean(target_embeddings,dim=0)
+
+    ref_feat = torch.stack(ref_feats,dim=0)
+    gt_mask = torch.stack(gt_masks,dim=0).to(torch.float)
+
+    if sim_probe:
+
+        right_sized_mask = F.interpolate(gt_mask, size=feat_dims, mode="bilinear")[:,0] > 0
+        assert right_sized_mask.shape[0] == gt_mask.shape[0]
+        assert right_sized_mask.shape[1:] == feat_dims
+
+        sim_probe = get_linear_probe_weights(ref_feat,target_feat,right_sized_mask)
+    else:
+        sim_probe = None
+
+    def get_prompts(ref_feat):
         with torch.no_grad():
-            sim_map = get_sim_map(predictor, target_feat,sim_probe)
+            sim_map = get_sim_map(ref_feat, target_feat,sim_probe)
         attn_sim = sim_map_to_attn(sim_map)
         points = sim_map_to_points(sim_map,include_neg)
 
@@ -72,82 +99,88 @@ def persam_f(
             target_guidance["target_embedding"] = target_embedding
         
         return target_guidance, kwargs, sim_map
-        
+    
+    target_guidances,kwargss,sim_maps = [],[],[]
+    for ref_feat in ref_feats:
+        target_guidance, kwargs, sim_map = get_prompts(ref_feat)
+        target_guidances.append(target_guidance)
+        kwargss.append(kwargs)
+        sim_maps.append(sim_map)
 
-    for test_img_name, test_img_path in tqdm(img_pairs):
-        is_ref = test_img_path == ref_img_path
+    if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
+        logit_weights = get_logit_weights(
+            predictor, gt_mask, experiment_name, target_guidances, **kwargs
+        )
+    
+    # Not implemented for >1-shot
+    elif experiment_name == "clip_embedding":
+        raise NotImplementedError()
+    elif experiment_name in ["area", "bbox_area", "perimeter"]:
 
+        raise NotImplementedError()
+
+        # Resize gt_mask
+        masks, _,_ = predictor.predict(
+            multimask_output=True,
+        )
+        mask_dims = masks.shape[-2:]
+        right_sized_mask = F.interpolate(gt_mask, size=mask_dims, mode="bilinear")[:,0] > 0
+        assert right_sized_mask.shape[0] == gt_mask.shape[0]
+        assert right_sized_mask.shape[1:] == mask_dims
+
+        if experiment_name == "area":
+
+            ref_area = torch.sum(right_sized_mask > 0)
+        elif experiment_name in ["bbox_area", "perimeter"]:
+            box = mask_to_box(right_sized_mask.cpu().detach().numpy())[0]
+            width = box[2] - box[0]
+            height = box[3] - box[1]
+            ref_area = width * height
+            ref_perimeter = 2 * (width + height)
+
+    mkdirp(output_dir)
+
+    raw_img_pairs = load_images_in_dir(test_img_dir)
+    for test_img_name, test_img_path in tqdm(raw_img_pairs):
         if(should_log): print(f"Processing {test_img_name}...")
-        if not is_ref:
-            load_image(predictor, test_img_path)
-        if is_ref:
-            mask_cv2 = cv2.imread(ref_mask_path)
-            mask_cv2 = cv2.cvtColor(mask_cv2, cv2.COLOR_BGR2RGB)
-            gt_mask = torch.tensor(mask_cv2)[None, :, :, 0] > 0
-
-            if sim_probe:
-                ref_feat = predictor.features.squeeze()
-                right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=feat_dims, mode="bilinear")[0,0] > 0
-                sim_probe = get_linear_probe_weights(predictor,ref_feat,target_feat[0],right_sized_mask)
-            else:
-                sim_probe = None
+        load_image(predictor, test_img_path)
 
         target_guidance, kwargs, sim_map = get_prompts()
 
         # Experiments!
-        if is_ref:
-            if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
+        mask_picking_data = None
+        if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
+            mask_picking_data = logit_weights
+        elif experiment_name == "sam_embedding":
+            mask_picking_data = (target_embedding, should_normalize)
+        elif experiment_name == "sim":
+            mask_picking_data = sim_map
+        
+        # Not implemented for >1-shot
+        elif experiment_name in ["area", "bbox_area"]:
+            raise NotImplementedError()
+            mask_picking_data = ref_area
+        elif experiment_name == "perimeter":
+            raise NotImplementedError()
+            mask_picking_data = ref_perimeter
+        elif experiment_name == "clip_embedding":
+            raise NotImplementedError()
 
-                logit_weights = get_logit_weights(
-                    predictor, gt_mask, experiment_name, target_guidance, **kwargs
-                )
-            elif experiment_name == "clip_embedding":
-                raise NotImplementedError()
-            elif experiment_name in ["area", "bbox_area", "perimeter"]:
-                masks, _,_ = predictor.predict(
-                    multimask_output=True,
-                )
-                mask_dims = masks.shape[-2:]
-                right_sized_mask = F.interpolate(gt_mask[None,...].to(torch.float), size=mask_dims, mode="bilinear")[0,0] > 0
-                if experiment_name == "area":
+        mask,mask_dict = predict_mask_refined(
+            predictor,
+            target_guidance,
+            experiment_name,
+            mask_picking_data,
+            use_box,
+            **kwargs,
+        )
 
-                    ref_area = torch.sum(right_sized_mask > 0)
-                elif experiment_name in ["bbox_area", "perimeter"]:
-                    box = mask_to_box(right_sized_mask.cpu().detach().numpy())[0]
-                    width = box[2] - box[0]
-                    height = box[3] - box[1]
-                    ref_area = width * height
-                    ref_perimeter = 2 * (width + height)
-        else:
-            mask_picking_data = None
-            if experiment_name in ["linear_combo", "best_idx", "best_idx_iou"]:
-                mask_picking_data = logit_weights
-            elif experiment_name in ["area", "bbox_area"]:
-                mask_picking_data = ref_area
-            elif experiment_name == "perimeter":
-                mask_picking_data = ref_perimeter
-            elif experiment_name == "clip_embedding":
-                raise NotImplementedError()
-            elif experiment_name == "sam_embedding":
-                mask_picking_data = (target_embedding, should_normalize)
-            elif experiment_name == "sim":
-                mask_picking_data = sim_map
+        for k,v in mask_dict.items():
+            save_mask(v,os.path.join(output_dir,f"{test_img_name}_{k}.png"))
 
-            mask,mask_dict = predict_mask_refined(
-                predictor,
-                target_guidance,
-                experiment_name,
-                mask_picking_data,
-                use_box,
-                **kwargs,
-            )
-
-            for k,v in mask_dict.items():
-                save_mask(v,os.path.join(output_dir,f"{test_img_name}_{k}.png"))
-
-            mask_path = os.path.join(output_dir, test_img_name + ".png")
-            save_mask(mask, mask_path)
-            if should_log: print("Saved mask to", mask_path)
+        mask_path = os.path.join(output_dir, test_img_name + ".png")
+        save_mask(mask, mask_path)
+        if should_log: print("Saved mask to", mask_path)
 
 
 import torch
@@ -168,6 +201,7 @@ def get_logit_weights(
     target_guidance: Dict[str, torch.Tensor],
     **kwargs,
 ) -> torch.Tensor:
+    raise NotImplementedError()
     kwargs = {
         **kwargs,
         "high_res": True,
@@ -322,24 +356,20 @@ probe_log_epoch = 200
 eps = 1e-10
 
 def get_linear_probe_weights(
-        predictor: SamPredictor,
-        ref_feat: torch.Tensor, # Shape (C, H, W)
+        ref_feat: torch.Tensor, # Shape (N, C, H, W)
         target_feat: torch.Tensor, # Shape (C,)
-        gt_mask: torch.Tensor, # Shape (H,W)
+        gt_mask: torch.Tensor, # Shape (N, H, W)
 )-> torch.Tensor:
  
     gt_mask = gt_mask.flatten().cuda()
 
-    # convert to (HW,C)
-    ref_feat = ref_feat.flatten(1).permute(1,0)
-    ref_feat = ref_feat / (eps + ref_feat.norm(dim=0,keepdim=True))
-    HW,C = ref_feat.shape
+    # convert to (N, HW,C)
+    ref_feat = ref_feat.flatten(-2).permute(0,2,1)
+    ref_feat = ref_feat / (eps + ref_feat.norm(dim=1,keepdim=True))
+    N,HW,C = ref_feat.shape
 
-    assert ref_feat.shape[0] == gt_mask.shape[0],f"Shape mismatch: {ref_feat.shape} vs {gt_mask.shape}"
+    assert ref_feat.shape[:2] == gt_mask.shape,f"Shape mismatch: {ref_feat.shape} vs {gt_mask.shape}"
     assert ref_feat.device == gt_mask.device, f"Device mismatch: {ref_feat.device} vs {gt_mask.device}"
-
-    ref_feat = ref_feat[None,...]
-    gt_mask = gt_mask[None,...].to(torch.float32)
 
     # Learn a (C,) vector of weights which should make attn_sim look like gt_mask
     probe = LinearSimilarityProbe(C,target_feat).cuda()
@@ -379,12 +409,11 @@ class LinearSimilarityProbe(nn.Module):
         # self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
         # self.bias = nn.Parameter(torch.zeros(1, requires_grad=True))
     def forward(self,
-                feat: torch.Tensor, # shape (1,HW, C)
-                gt_mask: Optional[torch.Tensor]=None, # shape (1,HW)
+                feat: torch.Tensor, # shape (N,HW, C)
+                gt_mask: Optional[torch.Tensor]=None, # shape (N,HW)
                 )->torch.Tensor: # shape (,)
-        hidden = F.relu(self.m1(feat))
-        sim_map = self.m2(hidden).squeeze(2) # shape (1,HW)
-        # sim_map = feat @ self.weights + self.bias # shape (1,HW)
+        hidden = F.relu(self.m1(feat)) # shape (N,HW, hidden_channels)
+        sim_map = self.m2(hidden).squeeze(2) # shape (N,HW)
         if not self.training:
             return sim_map
 
@@ -400,8 +429,8 @@ import argparse
 def get_arguments():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--ref_img", type=str, default="./data/Images/*/00.jpg")
-    parser.add_argument("--ref_mask", type=str, default="./data/Annotations/*/00.png")
+    parser.add_argument("--ref_img_dir", type=str, default="./data/Images/*/ref")
+    parser.add_argument("--ref_mask_dir", type=str, default="./data/Annotations/*/ref")
     parser.add_argument("--img_dir", type=str, default="./data/Images/*")
     parser.add_argument("--out_dir", type=str, default="output")
 

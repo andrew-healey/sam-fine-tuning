@@ -17,16 +17,16 @@ eps = 1e-10
 
 # Assume the image is already loaded in the predictor
 def get_mask_embed(
-    predictor: SamPredictor, ref_mask: torch.Tensor, should_normalize: bool = True
+    ref_feat: torch.Tensor, ref_mask: torch.Tensor, should_normalize: bool = True
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    ref_feat = predictor.features.squeeze().permute(1, 2, 0)
+    features = ref_feat.squeeze().permute(1, 2, 0)
 
-    feat_dims = ref_feat.shape[0:2]
+    feat_dims = features.shape[0:2]
     ref_mask = F.interpolate(ref_mask, size=feat_dims, mode="bilinear")
     ref_mask = ref_mask[0, 0]
 
     # Target feature extraction
-    target_feat = ref_feat[ref_mask > 0]
+    target_feat = features[ref_mask > 0]
 
     if target_feat.shape[0] == 0:
         target_feat = target_embedding = torch.zeros(1, 256).cuda()
