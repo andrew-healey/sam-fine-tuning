@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 def persam_f(
     predictor: SamPredictor,
-    ref_img_path: str,
+    ref_img_paths: str,
     ref_mask_path: str,
     test_img_dir: str,
     output_dir: str,
@@ -55,6 +55,25 @@ def persam_f(
     ref_img_pair = (f"REF_{os.path.basename(ref_img_path)}", ref_img_path)
     img_pairs = [ref_img_pair] + test_img_pairs
 
+    def get_prompts():
+        with torch.no_grad():
+            sim_map = get_sim_map(predictor, target_feat,sim_probe)
+        attn_sim = sim_map_to_attn(sim_map)
+        points = sim_map_to_points(sim_map,include_neg)
+
+        sim_path = os.path.join(output_dir, f"{test_img_name}_sim.png")
+        save_mask(sim_map.sigmoid().squeeze(),sim_path)
+
+        kwargs = points_to_kwargs(points)
+        target_guidance = {}
+        if use_attn:
+            target_guidance["attn_sim"] = attn_sim
+        if use_embed:
+            target_guidance["target_embedding"] = target_embedding
+        
+        return target_guidance, kwargs, sim_map
+        
+
     for test_img_name, test_img_path in tqdm(img_pairs):
         is_ref = test_img_path == ref_img_path
 
@@ -73,20 +92,7 @@ def persam_f(
             else:
                 sim_probe = None
 
-        with torch.no_grad():
-            sim_map = get_sim_map(predictor, target_feat,sim_probe)
-        attn_sim = sim_map_to_attn(sim_map)
-        points = sim_map_to_points(sim_map,include_neg)
-
-        sim_path = os.path.join(output_dir, f"{test_img_name}_sim.png")
-        save_mask(sim_map.sigmoid().squeeze(),sim_path)
-
-        kwargs = points_to_kwargs(points)
-        target_guidance = {}
-        if use_attn:
-            target_guidance["attn_sim"] = attn_sim
-        if use_embed:
-            target_guidance["target_embedding"] = target_embedding
+        target_guidance, kwargs, sim_map = get_prompts()
 
         # Experiments!
         if is_ref:
