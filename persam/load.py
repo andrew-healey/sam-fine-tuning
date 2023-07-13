@@ -82,6 +82,7 @@ def save_mask(mask: Union[np.ndarray,torch.Tensor], mask_path: str):
     mask_colors = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
     mask_colors[:,:,0] = 128
     mask_colors *= mask[:,:,None]
+    mask_colors = cv2.cvtColor(mask_colors, cv2.COLOR_BGR2RGB)
     cv2.imwrite(mask_path, mask_colors)
 
 def zip_globs(*globs):

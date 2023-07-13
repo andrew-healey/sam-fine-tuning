@@ -3,6 +3,7 @@ from load import *
 
 import cv2
 
+eps = 1e-10
 
 def semseg_iou(gt_mask_dir: str, output_dir: str):
     running_intersection = 0
@@ -22,7 +23,7 @@ def semseg_iou(gt_mask_dir: str, output_dir: str):
             running_intersection += intersection
             running_union += union
 
-    iou = running_intersection / (running_union + 1e-10)
+    iou = running_intersection / (running_union + eps)
 
     return iou
 
@@ -68,5 +69,5 @@ if __name__ == "__main__":
         num_dirs += 1
         running_iou += miou
 
-    miou = running_iou / num_dirs
+    miou = running_iou / (num_dirs + eps)
     print(f"mIoU: {round(miou,3)}")

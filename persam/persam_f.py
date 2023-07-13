@@ -41,7 +41,7 @@ def persam_f(
 
     print("Loading reference images...")
 
-    ref_img_paths = [ref_img_path for _,ref_img_path in load_images_in_dir(ref_img_dir)]
+    ref_img_names,ref_img_paths = list(zip(*load_images_in_dir(ref_img_dir)))
     ref_mask_paths = [ref_mask_path for _,ref_mask_path in load_images_in_dir(ref_mask_dir)]
 
     ref_imgs = []
@@ -83,7 +83,7 @@ def persam_f(
     else:
         sim_probe = None
 
-    def get_prompts(ref_feat):
+    def get_prompts(ref_feat,test_img_name):
         with torch.no_grad():
             sim_map = get_sim_map(predictor,ref_feat, target_feat,sim_probe)
         attn_sim = sim_map_to_attn(sim_map)
@@ -102,8 +102,9 @@ def persam_f(
         return target_guidance, kwargs, sim_map
     
     target_guidances,kwargss,sim_maps = [],[],[]
-    for ref_feat in ref_feats:
-        target_guidance, kwargs, sim_map = get_prompts(ref_feat)
+    for i,ref_feat in enumerate(ref_feats):
+        ref_img_name = ref_img_names[i]
+        target_guidance, kwargs, sim_map = get_prompts(ref_feat,f"REF_{ref_img_name}")
         target_guidances.append(target_guidance)
         kwargss.append(kwargs)
         sim_maps.append(sim_map)
@@ -146,7 +147,7 @@ def persam_f(
         if(should_log): print(f"Processing {test_img_name}...")
         load_image(predictor, test_img_path)
 
-        target_guidance, kwargs, sim_map = get_prompts()
+        target_guidance, kwargs, sim_map = get_prompts(predictor.features,test_img_name)
 
         # Experiments!
         mask_picking_data = None
