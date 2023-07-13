@@ -2,8 +2,8 @@
 data_classes=($(ls -d ./data/Annotations/*/))
 if printf '%s\0' "${data_classes[@]}" | grep -F -x -z -- ./data/Annotations/$1/; then
 args=$(cat <<-END
-    --ref_img ./data/Images/$1/00.jpg
-    --ref_mask ./data/Annotations/$1/00.png
+    --ref_img_dir ./data/Images/$1/ref
+    --ref_mask_dir ./data/Annotations/$1/ref
     --img_dir ./data/Images/$1
     --out_dir ./output
 END
@@ -16,8 +16,8 @@ then
 set -f
 
 args=$(cat <<-END
-    --ref_img ./data/Images/*/00.jpg
-    --ref_mask ./data/Annotations/*/00.png
+    --ref_img_dir ./data/Images/*/ref
+    --ref_mask_dir ./data/Annotations/*/ref
     --img_dir ./data/Images/*
 END
 )
