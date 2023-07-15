@@ -2,6 +2,7 @@ from common import *
 from load import *
 
 import cv2
+import numpy as np
 
 eps = 1e-10
 
@@ -14,8 +15,11 @@ def semseg_iou(gt_mask_dir: str, output_dir: str):
     for gt_mask_name, gt_mask_path in masks_in_dir:
         output_mask_path = os.path.join(output_dir, gt_mask_name + ".png")
         if os.path.exists(output_mask_path):
-            output_mask = cv2.imread(output_mask_path) > 0
-            gt_mask = cv2.imread(gt_mask_path) > 0
+            output_mask = cv2.imread(output_mask_path) > 0.5
+            gt_mask = cv2.imread(gt_mask_path) > 0.5
+
+            output_mask = np.any(output_mask,axis=2)
+            gt_mask = np.any(gt_mask,axis=2)
 
             intersection = np.logical_and(output_mask, gt_mask).sum()
             union = np.logical_or(output_mask, gt_mask).sum()
@@ -59,9 +63,11 @@ if __name__ == "__main__":
     gt_dirs = glob.glob(args.gt_dir_glob)
 
     for output_dir in glob.glob(args.output_dir_glob):
-        gt_dir = [
+        matching_gt_dirs = [
             d for d in gt_dirs if os.path.basename(d) == os.path.basename(output_dir)
-        ][0]
+        ]
+        assert len(matching_gt_dirs) == 1,f"Missing GT dir for {output_dir}. GT dirs are {gt_dirs}"
+        gt_dir = matching_gt_dirs[0]
 
         miou = semseg_iou(gt_dir, output_dir)
         g = os.path.basename(gt_dir)

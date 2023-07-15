@@ -86,6 +86,8 @@ def persam_f(
     else:
         sim_probe = None
 
+    mkdirp(output_dir)
+
     def get_prompts(ref_feat,test_img_name):
         with torch.no_grad():
             sim_map = get_sim_map(predictor,ref_feat, target_feat,sim_probe)
@@ -107,7 +109,7 @@ def persam_f(
     target_guidances,kwargss,sim_maps = [],[],[]
     for i,ref_feat in enumerate(ref_feats):
         ref_img_name = ref_img_names[i]
-        target_guidance, kwargs, sim_map = get_prompts(ref_feat,f"REF_{ref_img_name}")
+        target_guidance, kwargs, sim_map = get_prompts(ref_feat,f"{ref_img_name}.REF")
         target_guidances.append(target_guidance)
         kwargss.append(kwargs)
         sim_maps.append(sim_map)
@@ -143,7 +145,6 @@ def persam_f(
             ref_area = width * height
             ref_perimeter = 2 * (width + height)
 
-    mkdirp(output_dir)
 
     raw_img_pairs = load_images_in_dir(test_img_dir)
     for test_img_name, test_img_path in tqdm(raw_img_pairs):
@@ -333,9 +334,10 @@ def calculate_iou_loss(inputs,targets):
     numerator = torch.min(inputs,targets).sum(-1)
     denominator = torch.max(inputs,targets).sum(-1)
 
-    loss = 1 - (numerator + 1) / (denominator + 1)
-    assert loss.shape == (inputs.shape[0],)
-    return loss.mean()
+    i = torch.mean(numerator)
+    o = torch.mean(denominator)
+
+    return 1 - (i + 1) / (o + 1)
 
 def calculate_sigmoid_focal_loss(
     inputs, targets, num_masks=1, alpha: float = 0.25, gamma: float = 2
@@ -366,7 +368,7 @@ def calculate_sigmoid_focal_loss(
 
     return loss.mean(1).sum() / num_masks
 
-probe_lr = 3e-2
+probe_lr = 5e-2
 probe_train_epoch = 1000
 probe_log_epoch = 200
 eps = 1e-10
@@ -408,8 +410,8 @@ def get_linear_probe_weights(
 
 hidden_channels = 3
 loss_weightings = {
-    "dice": 1,
-    "focal": 1,
+    "dice": 0,
+    "focal": 0,
     "iou": 1,
 }
 

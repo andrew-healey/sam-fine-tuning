@@ -17,6 +17,9 @@ def rmrf(dir: str):
     if os.path.exists(dir):
         shutil.rmtree(dir)
 
+def cp(src: str, dst: str):
+    shutil.copy(src, dst)
+
 from sam_cache import *
 
 def load_image(
