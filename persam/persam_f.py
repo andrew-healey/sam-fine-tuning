@@ -41,11 +41,14 @@ def persam_f(
 
     print("Loading reference images...")
 
-    ref_img_names,ref_img_paths = list(zip(*load_images_in_dir(ref_img_dir)))
-    ref_mask_paths = [ref_mask_path for _,ref_mask_path in load_images_in_dir(ref_mask_dir)]
+    ref_img_infos = list(load_images_in_dir(ref_img_dir))
+    ref_mask_infos = list(load_images_in_dir(ref_mask_dir))
+    if len(ref_img_infos) == 0 or len(ref_mask_infos) == 0:
+      return
+    ref_img_names,ref_img_paths = list(zip(*ref_img_infos))
+    ref_mask_paths = [ref_mask_path for _,ref_mask_path in ref_mask_infos]
 
     ref_imgs = []
-    # ref_masks = []
     ref_feats = []
     target_feats = []
     target_embeddings = []
@@ -305,7 +308,7 @@ class Mask_Weights(nn.Module):
         self.weights = nn.Parameter(torch.ones(2, 1, requires_grad=True) / 3)
 
 
-def calculate_dice_loss(inputs, targets, num_masks=1):
+def calculate_dice_loss(inputs, targets):
     """
     Compute the DICE loss, similar to generalized IOU for masks
     Args:
@@ -320,8 +323,19 @@ def calculate_dice_loss(inputs, targets, num_masks=1):
     numerator = 2 * (inputs * targets).sum(-1)
     denominator = inputs.sum(-1) + targets.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
-    return loss.sum() / num_masks
+    assert loss.shape == (inputs.shape[0],)
+    return loss.mean()
 
+def calculate_iou_loss(inputs,targets):
+    inputs = inputs.sigmoid()
+    inputs = inputs.flatten(1)
+
+    numerator = torch.min(inputs,targets).sum(-1)
+    denominator = torch.max(inputs,targets).sum(-1)
+
+    loss = 1 - (numerator + 1) / (denominator + 1)
+    assert loss.shape == (inputs.shape[0],)
+    return loss.mean()
 
 def calculate_sigmoid_focal_loss(
     inputs, targets, num_masks=1, alpha: float = 0.25, gamma: float = 2
@@ -382,17 +396,23 @@ def get_linear_probe_weights(
 
     for epoch in range(probe_train_epoch):
         optimizer.zero_grad()
-        loss,dice,focal = probe(ref_feat, gt_mask)
+        loss,dice,iou,focal = probe(ref_feat, gt_mask)
         loss.backward()
         optimizer.step()
         scheduler.step()
 
         if epoch % probe_log_epoch == 0:
-            print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} focal: {focal.item()}")
+            print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} iou: {iou.item()} focal: {focal.item()}")
     probe.eval()
     return probe
 
 hidden_channels = 3
+loss_weightings = {
+    "dice": 1,
+    "focal": 1,
+    "iou": 1,
+}
+
 class LinearSimilarityProbe(nn.Module):
     def __init__(self, num_channels: int,target_feat: torch.Tensor):
         super().__init__()
@@ -420,9 +440,14 @@ class LinearSimilarityProbe(nn.Module):
             return sim_map
 
         dice_loss = calculate_dice_loss(sim_map, gt_mask)
+        iou_loss = calculate_iou_loss(sim_map, gt_mask)
         focal_loss = calculate_sigmoid_focal_loss(sim_map, gt_mask)
 
-        return dice_loss + focal_loss,dice_loss,focal_loss
+        weighted = loss_weightings["dice"] * dice_loss + \
+            loss_weightings["focal"] * focal_loss + \
+            loss_weightings["iou"] * iou_loss
+
+        return weighted,dice_loss,iou_loss,focal_loss
 
 
 import argparse
