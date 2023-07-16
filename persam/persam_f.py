@@ -82,7 +82,7 @@ def persam_f(
         assert right_sized_mask.shape[0] == gt_mask.shape[0]
         assert right_sized_mask.shape[1:] == feat_dims
 
-        sim_probe = get_linear_probe_weights(ref_feat,target_feat,right_sized_mask)
+        sim_probe = get_linear_probe_weights(ref_feat,target_feat,right_sized_mask,predictor)
     else:
         sim_probe = None
 
@@ -372,14 +372,17 @@ probe_lr = 5e-2
 probe_train_epoch = 1000
 probe_log_epoch = 200
 eps = 1e-10
-
+weight_decay = 1e-3
 def get_linear_probe_weights(
         ref_feat: torch.Tensor, # Shape (N, C, H, W)
         target_feat: torch.Tensor, # Shape (C,)
         gt_mask: torch.Tensor, # Shape (N, H, W)
+        predictor: SamPredictor
 )-> torch.Tensor:
  
     gt_mask = gt_mask.flatten(1).cuda()
+
+    og_ref_feat = ref_feat
 
     # convert to (N, HW,C)
     ref_feat = ref_feat.flatten(2).permute(0,2,1)
@@ -390,33 +393,35 @@ def get_linear_probe_weights(
     assert ref_feat.device == gt_mask.device, f"Device mismatch: {ref_feat.device} vs {gt_mask.device}"
 
     # Learn a (C,) vector of weights which should make attn_sim look like gt_mask
-    probe = LinearSimilarityProbe(C,target_feat).cuda()
+    probe = LinearSimilarityProbe(C,target_feat,predictor).cuda()
 
-    optimizer = torch.optim.Adam(probe.parameters(), lr=probe_lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=probe_train_epoch)
-    probe.train()
+    for i in range(1):
+        print(f"Training on {i+1} images")
+        optimizer = torch.optim.Adam(probe.parameters(), lr=probe_lr, weight_decay=weight_decay)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=probe_train_epoch)
+        probe.train()
 
-    for epoch in range(probe_train_epoch):
-        optimizer.zero_grad()
-        loss,dice,iou,focal = probe(ref_feat, gt_mask)
-        loss.backward()
-        optimizer.step()
-        scheduler.step()
+        for epoch in range(probe_train_epoch):
+            optimizer.zero_grad()
+            loss,dice,iou,focal = probe(og_ref_feat,ref_feat, gt_mask)
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
 
-        if epoch % probe_log_epoch == 0:
-            print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} iou: {iou.item()} focal: {focal.item()}")
+            if epoch % probe_log_epoch == 0:
+                print(f"Epoch {epoch} loss: {loss.item()} dice: {dice.item()} iou: {iou.item()} focal: {focal.item()}")
     probe.eval()
     return probe
 
 hidden_channels = 3
 loss_weightings = {
     "dice": 0,
-    "focal": 0,
+    "focal": 1,
     "iou": 1,
 }
 
 class LinearSimilarityProbe(nn.Module):
-    def __init__(self, num_channels: int,target_feat: torch.Tensor):
+    def __init__(self, num_channels: int,target_feat: torch.Tensor, predictor:SamPredictor):
         super().__init__()
         # shape (C)
         assert target_feat.shape[0] == num_channels, f"Shape mismatch: {target_feat.shape} vs {num_channels}"
@@ -427,12 +432,14 @@ class LinearSimilarityProbe(nn.Module):
             dummy_m1 = torch.zeros_like(self.m1.weight)
             assert dummy_m1.shape == (hidden_channels, num_channels)
             dummy_m1[0] = target_feat
-            self.m1.weight.copy_(dummy_m1)
+            # self.m1.weight.copy_(dummy_m1)
         self.m2 = nn.Linear(hidden_channels, 1)
+        self.predictor = predictor
 
         # self.weights = nn.Parameter(torch.ones(num_channels, requires_grad=True) / num_channels)
         # self.bias = nn.Parameter(torch.zeros(1, requires_grad=True))
     def forward(self,
+                og_feat: torch.Tensor,
                 feat: torch.Tensor, # shape (N,HW, C)
                 gt_mask: Optional[torch.Tensor]=None, # shape (N,HW)
                 )->torch.Tensor: # shape (,)
@@ -440,6 +447,32 @@ class LinearSimilarityProbe(nn.Module):
         sim_map = self.m2(hidden).squeeze(2) # shape (N,HW)
         if not self.training:
             return sim_map
+
+        mask_inputs_torch = sim_map
+        print(mask_inputs_torch.shape,self.predictor.features.shape)
+        
+        N,C,H,W = og_feat.shape
+        assert H==W,f"Mismatched H,W in N={N},C={C},H={H},W={W}"
+        # Get batched mask predictions
+        for i in range(N):
+          self.predictor.features = og_feat[i:i+1]
+          mask_input_torch = mask_inputs_torch[i:i+1].view(1,H,W)
+
+          coords_torch, labels_torch, box_torch = None, None, None
+          masks, iou_predictions, low_res_masks, *rest = predictor.predict_torch(
+              coords_torch,
+              labels_torch,
+              box_torch,
+              mask_input_torch,
+              multimask_output=False,
+              return_logits=True,
+              attn_sim=None,
+              target_embedding=None,
+              high_res=False,
+          )
+
+        print("masks",masks.shape,gt_mask.shape)
+        raise 1
 
         dice_loss = calculate_dice_loss(sim_map, gt_mask)
         iou_loss = calculate_iou_loss(sim_map, gt_mask)
