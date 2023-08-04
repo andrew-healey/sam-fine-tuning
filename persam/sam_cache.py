@@ -7,7 +7,7 @@ This should speed up experiments by a factor of 10x.
 
 import os
 
-from load import *
+from .load import *
 
 from segment_anything import SamPredictor
 

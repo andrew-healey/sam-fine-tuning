@@ -1,2 +1,9 @@
 data/
 .venv/
+
+*.test.ipynb
+Climbing-*
+
+tmp/
+
+__pycache__/

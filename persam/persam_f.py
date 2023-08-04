@@ -1,5 +1,5 @@
-from common import *
-from load import *
+from .common import *
+from .load import *
 
 NEG_EXPERIMENT_VALUES = ATTN_EXPERIMENT_VALUES = EMBED_EXPERIMENT_VALUES = BOX_EXPERIMENT_VALUES = NORM_EXPERIMENT_VALUES = [
     True,
@@ -309,7 +309,7 @@ class Mask_Weights(nn.Module):
         self.weights = nn.Parameter(torch.ones(2, 1, requires_grad=True) / 3)
 
 
-def calculate_dice_loss(inputs, targets):
+def calculate_dice_loss(inputs, targets, should_sigmoid=True):
     """
     Compute the DICE loss, similar to generalized IOU for masks
     Args:
@@ -319,7 +319,7 @@ def calculate_dice_loss(inputs, targets):
                  classification label for each element in inputs
                 (0 for the negative class and 1 for the positive class).
     """
-    inputs = inputs.sigmoid()
+    if should_sigmoid: inputs = inputs.sigmoid()
     inputs = inputs.flatten(1)
     numerator = 2 * (inputs * targets).sum(-1)
     denominator = inputs.sum(-1) + targets.sum(-1)
@@ -327,8 +327,8 @@ def calculate_dice_loss(inputs, targets):
     assert loss.shape == (inputs.shape[0],)
     return loss.mean()
 
-def calculate_iou_loss(inputs,targets):
-    inputs = inputs.sigmoid()
+def calculate_iou_loss(inputs,targets,should_sigmoid=True):
+    if should_sigmoid: inputs = inputs.sigmoid()
     inputs = inputs.flatten(1)
 
     numerator = torch.min(inputs,targets).sum(-1)
@@ -340,7 +340,7 @@ def calculate_iou_loss(inputs,targets):
     return 1 - (i + 1) / (o + 1)
 
 def calculate_sigmoid_focal_loss(
-    inputs, targets, num_masks=1, alpha: float = 0.25, gamma: float = 2
+    inputs, targets, num_masks=1, alpha: float = 0.25, gamma: float = 2, should_sigmoid=True
 ):
     """
     Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
@@ -358,7 +358,8 @@ def calculate_sigmoid_focal_loss(
         Loss tensor
     """
     prob = inputs.sigmoid()
-    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    which_loss = F.binary_cross_entropy_with_logits if should_sigmoid else F.binary_cross_entropy
+    ce_loss = which_loss(inputs, targets, reduction="none")
     p_t = prob * targets + (1 - prob) * (1 - targets)
     loss = ce_loss * ((1 - p_t) ** gamma)
 

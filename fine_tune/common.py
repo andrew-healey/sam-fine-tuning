@@ -20,9 +20,7 @@ import cv2
 
 from segment_anything import SamPredictor
 
-from typing import Callable, Iterable, Tuple, List, Optional
-
-DetsToEntries = Callable[[DetectionDataset], Iterable[Tuple[int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, Optional[torch.Tensor]]]]
+from typing import Iterable, List
 
 # notes for what these should look like / what they become:
 
@@ -64,12 +62,13 @@ Returns:
     a subsequent iteration as mask input.
 """
 
-Coords = (ndarray,ndarray) # shape (N, 2), dtype float32; shape (N,), dtype bool
+from typing import Dict, Union, Tuple
+
+Coords = Tuple[ndarray,ndarray] # shape (N, 2), dtype float32; shape (N,), dtype bool
 Box = ndarray # shape (4,), dtype float32, in XYXY format
 BoolMask = ndarray # shape (H,W), dtype bool
 FloatMask = ndarray # shape (H,W), dtype float32, in [0,1]
 
-from typing import Dict, Union
 Prompt = Dict[str,Union[Coords,Box,BoolMask]]
 
 import os
@@ -91,6 +90,7 @@ class SamDataset(Dataset):
             predictor: SamPredictor,
             device: str = default_device,
         ):
+
         self.dataset = dataset
         self.predictor = predictor
 
@@ -107,6 +107,7 @@ class SamDataset(Dataset):
         return len(self.prompts)
 
     def __getitem__(self, idx:int):
+
         img_name,prompt = self.prompts[idx]
 
         img = self.dataset.images[img_name]
@@ -116,17 +117,22 @@ class SamDataset(Dataset):
         clean_img_name = hash_img_name(img_name) # avoid unsafe characters and collisions
         embedding_path = os.path.join('tmp',clean_img_name+'.np')
 
+        predictor = self.predictor
+
         if os.path.exists(embedding_path):
-            embedding = torch.load(embedding_path)
+            embedding,input_size,original_size = torch.load(embedding_path)
         else:
-            self.predictor.set_image(img)
-            embedding = self.predictor.features
+            predictor.set_image(img)
+            embedding = predictor.features[0]
 
             assert torch.is_tensor(embedding),f"embedding is not a tensor, it is {type(embedding)}"
             assert len(embedding.shape) == 3,f"embedding shape is {embedding.shape}"
 
+            original_size = predictor.original_size
+            input_size = predictor.input_size
+
             # save the embedding
-            torch.save(embedding,embedding_path)
+            torch.save((embedding,input_size,original_size),embedding_path)
 
         # mimic the predict() function from the SAM predictor
 
@@ -136,7 +142,10 @@ class SamDataset(Dataset):
         point_labels = point_coords = None
         if points is not None:
             point_coords,point_labels = points
-            point_labels = point_labels.astype(np.bool)
+            point_labels = point_labels.astype(bool)
+
+            # point_coords = torch.from_numpy(point_coords).to(self.device)
+            # point_labels = torch.from_numpy(point_labels).to(self.device)
 
         mask_input = prompt.get('mask',None)
         box = prompt.get('box',None)
@@ -146,12 +155,12 @@ class SamDataset(Dataset):
             assert (
                 point_labels is not None
             ), "point_labels must be supplied if point_coords is supplied."
-            point_coords = self.transform.apply_coords(point_coords, self.original_size)
+            point_coords = predictor.transform.apply_coords(point_coords, original_size)
             coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=self.device)
             labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=self.device)
             coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
         if box is not None:
-            box = self.transform.apply_boxes(box, self.original_size)
+            box = predictor.transform.apply_boxes(box, original_size)
             box_torch = torch.as_tensor(box, dtype=torch.float, device=self.device)
             box_torch = box_torch[None, :]
         if mask_input is not None:
@@ -159,27 +168,33 @@ class SamDataset(Dataset):
             mask_input_torch = mask_input_torch[None, :, :, :]
         
         if point_coords is not None:
-            points = (point_coords, labels_torch)
+            points = (coords_torch, labels_torch)
         else:
             points = None
+        
+        multimask = prompt.get('multimask',False)
 
         # Embed prompts
-        sparse_embeddings, dense_embeddings = self.model.prompt_encoder(
+        sparse_embeddings, dense_embeddings = predictor.model.prompt_encoder(
             points=points,
             boxes=box_torch,
             masks=mask_input,
         )
 
+        print("points shape",point_coords.shape if point_coords is not None else None)
+        print("box shape",box.shape if box is not None else None)
+        print("mask_input shape",mask_input.shape if mask_input is not None else None)
+
         decoder_input = {
-            "image_embeddings": embedding,
-            "image_pe": self.predictor.model.prompt_encoder.get_dense_pe(),
-            "sparse_prompt_embeddings": sparse_embeddings,
-            "dense_prompt_embeddings": dense_embeddings,
-            "multimask_output": False, # TODO make this configurable
+            "image_embeddings": embedding.to(self.device),
+            "image_pe": predictor.model.prompt_encoder.get_dense_pe().to(self.device),
+            "sparse_prompt_embeddings": sparse_embeddings.to(self.device),
+            "dense_prompt_embeddings": dense_embeddings.to(self.device),
+            "multimask_output": multimask,
         }
 
-        # convert to cuda
-        decoder_input = {k:v.to(self.device) for k,v in decoder_input.items()}
+        print("decoder_input shapes", {k: v.shape if torch.is_tensor(v) else None for k, v in decoder_input.items()})
+        raise NotImplementedError
 
         gt_mask = prompt.get('gt_mask',None)
         if gt_mask is not None:
@@ -193,7 +208,7 @@ class SamDataset(Dataset):
 
         assert (gt_mask is None) != (gt_masks is None), "either gt_mask or gt_masks must be supplied, but not both"
 
-        return decoder_input, (gt_mask, gt_masks)
+        return decoder_input, (gt_mask, gt_masks), (input_size, original_size)
 
     # could be i.e. filtering out only detections of a certain class
     # maybe is selecting a bunch of uniform points
@@ -204,6 +219,44 @@ class SamDataset(Dataset):
     def detections_to_prompts(self, dets: Detections) -> Union[List[Prompt],Iterable[Prompt]]:
         raise NotImplementedError
 
+eps = 1e-6
+def get_max_iou_masks(gt_mask: Tensor, gt_masks: Tensor, pred_masks: Tensor) -> Tuple[Tensor,Tensor]:
+    # if gt_mask is not None:
+    #     return gt_mask
+    # else:
+    #     # get mask with highest IoU
+
+    #     intersections = torch.sum(torch.minimum(gt_masks,pred_mask[None,...]),dim=(1,2))
+    #     unions = torch.sum(torch.maximum(gt_masks,pred_mask[None,...]),dim=(1,2))
+
+    #     ious = intersections / (unions + eps)
+
+    #     best_idx = torch.argmax(ious)
+    #     return gt_masks[best_idx]
+    
+    # rewrite where there are multiple pred masks:
+    # get pred-gt mask with highest IoU
+
+    if gt_masks is None:
+        gt_masks = gt_mask[None,...]
+    
+    reshaped_preds = pred_masks[None,...]
+    reshaped_gts = gt_masks[:,None,...]
+
+    intersections = torch.sum(torch.minimum(reshaped_gts,reshaped_preds),dim=(2,3))
+    unions = torch.sum(torch.maximum(reshaped_gts,reshaped_preds),dim=(2,3))
+
+    ious = intersections / (unions + eps)
+
+    max_iou_per_gt, best_pred_idx_per_gt = ious.max(dim=1)
+    best_gt_idx = max_iou_per_gt.argmax(dim=0)
+    best_pred_idx = best_pred_idx_per_gt[best_gt_idx]
+
+    # make sure it's the actual minimum
+    assert torch.max(ious) == ious[best_gt_idx,best_pred_idx], "min-finding is wrong"
+
+    return gt_masks[best_gt_idx], pred_masks[best_pred_idx]
+
 # treats the dataset as class-agnostic.
 class SamBoxDataset(SamDataset):
     def detections_to_prompts(self, dets: Detections) -> List[Prompt]:
@@ -213,4 +266,58 @@ class SamBoxDataset(SamDataset):
             yield {
                 'box': det_box,
                 'gt_mask': det_mask,
+            }
+
+class SamPointDataset(SamDataset):
+    def __init__(self, *args, points_per_mask=20, **kwargs):
+        self.points_per_mask = points_per_mask
+        super().__init__(*args, **kwargs)
+    def detections_to_prompts(self, dets: Detections) -> List[Prompt]:
+        for det in dets:
+            det_box,det_mask,det_cls,det_score,_ = det
+
+            # # make index of mask coords
+            # mask_coords = torch.nonzero(torch.from_numpy(det_mask))
+            # # get random permutation of mask coords
+            # mask_coords = mask_coords[torch.randperm(mask_coords.shape[0])]
+
+            # # pick 1 point
+            # point_coord = mask_coords[0]
+            # points = (point_coord, torch.tensor([True],dtype=torch.bool))
+
+            # rewritten using numpy:
+
+            mask_coords = np.nonzero(det_mask) # format: tuple of 1d arrays
+            mask_coords = np.stack(mask_coords,axis=1) # format: 2d array
+            mask_coords = mask_coords[np.random.permutation(mask_coords.shape[0])]
+
+            point_coords = mask_coords[:self.points_per_mask]
+            for i in range(len(point_coords)):
+                point_coord = point_coords[i]
+                points = (point_coord[None,...], np.array([True],dtype=bool))
+
+                yield {
+                    'points': points,
+                    'gt_mask': det_mask,
+                    'multimask': True
+                }
+
+from segment_anything.utils.amg import build_point_grid
+class SamEverythingDataset(SamDataset):
+    def __init__(self, points_per_side: int, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.points_per_side = points_per_side
+    
+    def detections_to_prompts(self, dets: Detections) -> List[Prompt]:
+        # make a grid of points
+
+        raw_sam_points = build_point_grid(self.points_per_side) # in [0,1]x[0,1] space
+
+        # convert to pixel int coords
+        raw_sam_points = raw_sam_points * self.input_size
+        raw_sam_points = raw_sam_points.round().long()
+
+        for raw_sam_point in raw_sam_points:
+            yield {
+                'points': (raw_sam_point,np.array([True],dtype=bool)),
             }

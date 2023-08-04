@@ -1,12 +1,16 @@
 from typing import Tuple, Optional, Dict, Generator,Union
 
+import sys
+import os
+# add to front of syspath
+sys.path.insert(0,os.path.join(os.path.dirname(__file__), "..", "segment-anything"))
+
 from segment_anything import sam_model_registry, SamPredictor
 
 import torch
 
 import cv2
 
-import os
 def mkdirp(dir: str):
     os.makedirs(dir, exist_ok=True)
 
@@ -20,7 +24,7 @@ def rmrf(dir: str):
 def cp(src: str, dst: str):
     shutil.copy(src, dst)
 
-from sam_cache import *
+from .sam_cache import *
 
 def load_image(
     predictor: SamPredictor,
