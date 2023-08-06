@@ -82,6 +82,8 @@ def hash_img_name(img_name: str) -> str:
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+should_cache = False
+
 class SamDataset(Dataset):
 
     def __init__(
@@ -119,7 +121,7 @@ class SamDataset(Dataset):
 
         predictor = self.predictor
 
-        if os.path.exists(embedding_path):
+        if should_cache and os.path.exists(embedding_path):
             embedding,input_size,original_size = torch.load(embedding_path)
         else:
             predictor.set_image(img)
@@ -132,7 +134,7 @@ class SamDataset(Dataset):
             input_size = predictor.input_size
 
             # save the embedding
-            torch.save((embedding,input_size,original_size),embedding_path)
+            # torch.save((embedding,input_size,original_size),embedding_path)
 
         # mimic the predict() function from the SAM predictor
 
@@ -181,10 +183,6 @@ class SamDataset(Dataset):
             masks=mask_input,
         )
 
-        print("points shape",point_coords.shape if point_coords is not None else None)
-        print("box shape",box.shape if box is not None else None)
-        print("mask_input shape",mask_input.shape if mask_input is not None else None)
-
         decoder_input = {
             "image_embeddings": embedding.to(self.device),
             "image_pe": predictor.model.prompt_encoder.get_dense_pe().to(self.device),
@@ -192,9 +190,6 @@ class SamDataset(Dataset):
             "dense_prompt_embeddings": dense_embeddings.to(self.device),
             "multimask_output": multimask,
         }
-
-        print("decoder_input shapes", {k: v.shape if torch.is_tensor(v) else None for k, v in decoder_input.items()})
-        raise NotImplementedError
 
         gt_mask = prompt.get('gt_mask',None)
         if gt_mask is not None:
@@ -252,10 +247,12 @@ def get_max_iou_masks(gt_mask: Tensor, gt_masks: Tensor, pred_masks: Tensor) -> 
     best_gt_idx = max_iou_per_gt.argmax(dim=0)
     best_pred_idx = best_pred_idx_per_gt[best_gt_idx]
 
-    # make sure it's the actual minimum
-    assert torch.max(ious) == ious[best_gt_idx,best_pred_idx], "min-finding is wrong"
+    best_iou = ious[best_gt_idx,best_pred_idx]
 
-    return gt_masks[best_gt_idx], pred_masks[best_pred_idx]
+    # make sure it's the actual minimum
+    assert torch.max(ious) == best_iou, "min-finding is wrong"
+
+    return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx
 
 # treats the dataset as class-agnostic.
 class SamBoxDataset(SamDataset):
@@ -289,7 +286,7 @@ class SamPointDataset(SamDataset):
 
             mask_coords = np.nonzero(det_mask) # format: tuple of 1d arrays
             mask_coords = np.stack(mask_coords,axis=1) # format: 2d array
-            mask_coords = mask_coords[np.random.permutation(mask_coords.shape[0])]
+            mask_coords = mask_coords[np.random.permutation(mask_coords.shape[0])][:,::-1]
 
             point_coords = mask_coords[:self.points_per_mask]
             for i in range(len(point_coords)):

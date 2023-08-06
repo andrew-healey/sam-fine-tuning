@@ -1,9 +1,12 @@
 data/
 .venv/
+wandb/
 
-*.test.ipynb
+# *.test.ipynb
 Climbing-*
 
 tmp/
 
 __pycache__/
+
+*.pt
