@@ -38,7 +38,7 @@ FloatMask = ndarray # shape (H,W), dtype float32, in [0,1]
 # Prompt = Dict[str,Union[Coords,Box,BoolMask]]
 
 # using a dataclass instead:
-from dataclasses import dataclass
+from dataclasses import dataclass,asdict
 
 @dataclass
 class Prompt:
@@ -87,6 +87,7 @@ default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 should_cache = False
 
+from torch.nn import functional as F
 
 class SamDataset(Dataset):
 
@@ -178,7 +179,8 @@ class SamDataset(Dataset):
             box_torch = box_torch[None, :]
         if mask_input is not None:
             mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float, device=self.device)
-            mask_input_torch = mask_input_torch[None, :, :, :]
+            mask_input_torch = mask_input_torch[None, None, :, :]
+            mask_input_torch = F.interpolate(mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
         
         if point_coords is not None:
             points = (coords_torch, labels_torch)
@@ -189,7 +191,7 @@ class SamDataset(Dataset):
         sparse_embeddings, dense_embeddings = self.predictor.model.prompt_encoder(
             points=points,
             boxes=box_torch,
-            masks=mask_input,
+            masks=mask_input_torch,
         )
 
         decoder_input = {
@@ -315,37 +317,39 @@ class RandomPointDataset(SamDataset):
 
 from random import randint
 class SamNextMaskDataset(SamDataset):
-    def __init__(self, *args, secondary_prompter: SamDataset = None, **kwargs):
+    def __init__(self, *args, secondary_prompter: SamDataset = None, splits_per_img=5, **kwargs):
         self.secondary_prompter = secondary_prompter
+        self.splits_per_img = splits_per_img
         super().__init__(*args, **kwargs)
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
-        # make random permutation of masks
-        mask_idxs = torch.randperm(len(dets))
-        new_dets = dets[mask_idxs]
-        split_idx = randint(1,len(dets)-1)
+        for i in range(self.splits_per_img):
+            # make random permutation of masks
+            mask_idxs = torch.randperm(len(dets))
+            new_dets = dets[mask_idxs]
+            split_idx = randint(1,len(dets)-1)
 
-        # make combined mask of all pre-split dets, this becomes the mask prompt
-        # gt_dets are the ones after the split
+            # make combined mask of all pre-split dets, this becomes the mask prompt
+            # gt_dets are the ones after the split
 
-        gt_dets = new_dets[split_idx:]
-        combined_mask = get_combined_mask(img, new_dets[:split_idx])
+            gt_dets = new_dets[split_idx:]
+            combined_mask = get_combined_mask(img, new_dets[:split_idx])
 
-        primary_prompt = Prompt(
-            gt_masks=gt_dets.mask,
-            mask=combined_mask
-        )
+            primary_prompt = Prompt(
+                gt_masks=gt_dets.mask,
+                mask=combined_mask
+            )
 
-        if self.secondary_prompter is None:
-            return primary_prompt
+            if self.secondary_prompter is None:
+                return primary_prompt
 
-        # enrich prompt with a secondary prompt
-        secondary_prompt = self.secondary_prompter.detections_to_prompts(img, gt_dets)
+            # enrich prompt with a secondary prompt
+            secondary_prompt_gen = self.secondary_prompter.detections_to_prompts(img, gt_dets)
 
-        # merge prompts
-        return Prompt(
-            **secondary_prompt,
-            **primary_prompt
-        )
+            for secondary_prompt in secondary_prompt_gen:
+                # merge prompts
+                if secondary_prompt.mask is None:
+                    secondary_prompt.mask = primary_prompt.mask
+                yield secondary_prompt
 
 #
 # UTILS
@@ -414,13 +418,11 @@ def get_closest_dets(point: np.ndarray, dets: Detections, top_k: int = 1) -> Det
     return dets[sorted_by_dist[:top_k]]
 
 def get_combined_mask(img: np.ndarray, detections: Detections) -> np.ndarray:
-    mask = np.zeros(img.shape[:2], dtype=np.uint8)
+    mask = np.zeros(img.shape[:2], dtype=bool)
 
     for detection in detections:
         _, det_mask, *_ = detection
-        mask[det_mask.astype(bool)] = 1
-
-    mask = np.clip(mask, 0, 1)
+        mask[det_mask.astype(bool)] = True
 
     return mask
 
