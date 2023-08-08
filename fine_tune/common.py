@@ -53,7 +53,7 @@ class Prompt:
     multimask: bool = False
 
     def __post_init__(self):
-        assert self.points is not None or self.box is not None or self.mask is not None,"Prompt must have at least one of coords, box, or mask"
+        # assert self.points is not None or self.box is not None or self.mask is not None,"Prompt must have at least one of coords, box, or mask"
 
         if self.box is not None:
             assert self.box.shape == (4,),f"box must have shape (4,), not {self.box.shape}"
@@ -150,7 +150,7 @@ class SamDataset(Dataset):
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, sizing
+        return decoder_input, gt_masks, sizing, img
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -324,7 +324,11 @@ class SamNextMaskDataset(SamDataset):
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
         for i in range(self.splits_per_img):
             # make random permutation of masks
-            mask_idxs = torch.randperm(len(dets))
+
+            # mask_idxs = torch.randperm(len(dets))
+            # or sort by area
+            mask_idxs = np.argsort(dets.area)[::-1]
+
             new_dets = dets[mask_idxs]
             split_idx = randint(1,len(dets)-1)
 
@@ -350,6 +354,14 @@ class SamNextMaskDataset(SamDataset):
                 if secondary_prompt.mask is None:
                     secondary_prompt.mask = primary_prompt.mask
                 yield secondary_prompt
+
+class SamSemSegDataset(SamDataset):
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> List[Prompt] | Iterable[Prompt]:
+        gt_mask = get_combined_mask(img, dets)
+        yield Prompt(
+            gt_mask=gt_mask,
+            multimask=False,
+        )
 
 #
 # UTILS
@@ -410,6 +422,9 @@ def get_closest_dets(point: np.ndarray, dets: Detections, top_k: int = 1) -> Det
 
     # assert l2_dist.shape == (len(dets),), "l2 dist shape is wrong"
     # sorted_by_dist = np.argsort(l2_dist)
+
+    if top_k is None:
+        return dets
 
     polygonss = dets_to_polygonss(dets)
     distances = get_distances(point, polygonss)
