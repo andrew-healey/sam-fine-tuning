@@ -128,7 +128,7 @@ class SamDataset(Dataset):
         predictor = self.predictor
 
         if should_cache and os.path.exists(embedding_path):
-            embedding,input_size,original_size = torch.load(embedding_path)
+            embedding,input_size,original_size,resized_img = torch.load(embedding_path)
         else:
             predictor.set_image(img)
             embedding = predictor.features[0]
@@ -139,8 +139,10 @@ class SamDataset(Dataset):
             original_size = predictor.original_size
             input_size = predictor.input_size
 
+            resized_img = predictor.img.to(self.device)
+
             # save the embedding
-            # torch.save((embedding,input_size,original_size),embedding_path)
+            # torch.save((embedding,input_size,original_size,resized_img),embedding_path)
         
         sizing = (input_size,original_size)
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
@@ -150,7 +152,7 @@ class SamDataset(Dataset):
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, sizing, img
+        return decoder_input, gt_masks, sizing, img, resized_img
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -431,6 +433,21 @@ def get_closest_dets(point: np.ndarray, dets: Detections, top_k: int = 1) -> Det
     sorted_by_dist = np.argsort(distances)
 
     return dets[sorted_by_dist[:top_k]]
+
+def grow_mask(mask: np.ndarray, growth_radius: int) -> np.ndarray:
+    # grow mask by growth_radius
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (growth_radius, growth_radius))
+    mask = cv2.dilate(mask.astype(np.uint8), kernel, iterations=1)
+    return mask.astype(bool)
+
+def grow_all_masks(dets:Detections,growth_radius: int):
+    for i in range(len(dets)):
+        mask = dets.mask[i]
+        dets.mask[i] =  grow_mask(mask, growth_radius=growth_radius)
+    
+def grow_dataset_masks(dataset:DetectionDataset,growth_radius: int):
+    for dets in dataset.annotations.values():
+        grow_all_masks(dets,growth_radius=growth_radius)
 
 def get_combined_mask(img: np.ndarray, detections: Detections) -> np.ndarray:
     mask = np.zeros(img.shape[:2], dtype=bool)
