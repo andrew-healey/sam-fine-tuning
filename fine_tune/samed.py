@@ -13,6 +13,8 @@ from safetensors.torch import save_file
 
 from icecream import ic
 
+from typing import Any, Dict, List, Tuple, Type
+
 
 class _LoRA_qkv(nn.Module):
     """In Sam it is implemented as
@@ -81,89 +83,57 @@ class LoRA_Mask_Decoder(nn.Module):
         super(LoRA_Mask_Decoder, self).__init__()
 
         assert r > 0
-        # base_vit_dim = sam_model.image_encoder.patch_embed.proj.out_channels
-        # dim = base_vit_dim
+        self.r = r
 
-        # create for storage, then we can init them or load weights
-        self.w_As = []  # These are linear layers
-        self.w_Bs = []
-
-        # Additional surgery for the mask decoder
-        self.self_attn_As = []
-        self.self_attn_Bs = []
-        self.cross_attn_ti_As = []
-        self.cross_attn_ti_Bs = []
-        self.cross_attn_it_As = []
-        self.cross_attn_it_Bs = []
+        # Surgery for the mask decoder
         for param in mask_decoder.transformer.parameters():
             param.requires_grad = False
+
+        self.self_attn = nn.ModuleList()
+        self.cross_attn_ti = nn.ModuleList()
+        self.cross_attn_it = nn.ModuleList()
+
         decoder_transformer = mask_decoder.transformer
-        for layer_idx, blk in enumerate(decoder_transformer.layers):
-            self_attn_q_proj = blk.self_attn.q_proj
-            self_attn_v_proj = blk.self_attn.v_proj
-            input_dim = blk.self_attn.embedding_dim
-            output_dim = blk.self_attn.internal_dim
-            w_a_linear_q_self_attn = nn.Linear(input_dim, r, bias=False)
-            w_b_linear_q_self_attn = nn.Linear(r, output_dim, bias=False)
-            w_a_linear_v_self_attn = nn.Linear(input_dim, r, bias=False)
-            w_b_linear_v_self_attn = nn.Linear(r, output_dim, bias=False)
-            self.self_attn_As.append(w_a_linear_q_self_attn)
-            self.self_attn_Bs.append(w_b_linear_q_self_attn)
-            self.self_attn_As.append(w_a_linear_v_self_attn)
-            self.self_attn_Bs.append(w_b_linear_v_self_attn)
-            blk.self_attn.q_proj = _LoRA_qkv_proj(self_attn_q_proj, w_a_linear_q_self_attn, w_b_linear_q_self_attn)
-            blk.self_attn.v_proj = _LoRA_qkv_proj(self_attn_v_proj, w_a_linear_v_self_attn, w_b_linear_v_self_attn)
+        for blk in decoder_transformer.layers:
+            self.self_attn.append(self.lorify_qkv_proj(blk.self_attn))
+            self.cross_attn_ti.append(self.lorify_qkv_proj(blk.cross_attn_token_to_image))
+            self.cross_attn_it.append(self.lorify_qkv_proj(blk.cross_attn_image_to_token))
+        
+        self.final_attn = self.lorify_qkv_proj(decoder_transformer.final_attn_token_to_image)
 
-            cross_attn_ti_q_proj = blk.cross_attn_token_to_image.q_proj
-            cross_attn_ti_v_proj = blk.cross_attn_token_to_image.v_proj
-            ti_input_dim = blk.cross_attn_token_to_image.embedding_dim
-            ti_output_dim = blk.cross_attn_token_to_image.internal_dim
-            w_a_linear_q_cross_attn_ti = nn.Linear(ti_input_dim, r, bias=False)
-            w_b_linear_q_cross_attn_ti = nn.Linear(r, ti_output_dim, bias=False)
-            w_a_linear_v_cross_attn_ti = nn.Linear(ti_input_dim, r, bias=False)
-            w_b_linear_v_cross_attn_ti = nn.Linear(r, ti_output_dim, bias=False)
-            self.cross_attn_ti_As.append(w_a_linear_q_cross_attn_ti)
-            self.cross_attn_ti_Bs.append(w_b_linear_q_cross_attn_ti)
-            self.cross_attn_ti_As.append(w_a_linear_v_cross_attn_ti)
-            self.cross_attn_ti_Bs.append(w_b_linear_v_cross_attn_ti)
-            blk.cross_attn_token_to_image.q_proj = _LoRA_qkv_proj(cross_attn_ti_q_proj, w_a_linear_q_cross_attn_ti,
-                                                                  w_b_linear_q_cross_attn_ti)
-            blk.cross_attn_token_to_image.v_proj = _LoRA_qkv_proj(cross_attn_ti_v_proj, w_a_linear_v_cross_attn_ti,
-                                                                  w_b_linear_v_cross_attn_ti)
-
-            cross_attn_it_q_proj = blk.cross_attn_image_to_token.q_proj
-            cross_attn_it_v_proj = blk.cross_attn_image_to_token.v_proj
-            it_input_dim = blk.cross_attn_image_to_token.embedding_dim
-            it_output_dim = blk.cross_attn_image_to_token.internal_dim
-            w_a_linear_q_cross_attn_it = nn.Linear(it_input_dim, r, bias=False)
-            w_b_linear_q_cross_attn_it = nn.Linear(r, it_output_dim, bias=False)
-            w_a_linear_v_cross_attn_it = nn.Linear(it_input_dim, r, bias=False)
-            w_b_linear_v_cross_attn_it = nn.Linear(r, it_output_dim, bias=False)
-            self.cross_attn_it_As.append(w_a_linear_q_cross_attn_it)
-            self.cross_attn_it_Bs.append(w_b_linear_q_cross_attn_it)
-            self.cross_attn_it_As.append(w_a_linear_v_cross_attn_it)
-            self.cross_attn_it_Bs.append(w_b_linear_v_cross_attn_it)
-            blk.cross_attn_image_to_token.q_proj = _LoRA_qkv_proj(cross_attn_it_q_proj, w_a_linear_q_cross_attn_it,
-                                                                  w_b_linear_q_cross_attn_it)
-            blk.cross_attn_image_to_token.v_proj = _LoRA_qkv_proj(cross_attn_it_v_proj, w_a_linear_v_cross_attn_it,
-                                                                  w_b_linear_v_cross_attn_it)
-
-        # final attention token to image
-        block = decoder_transformer.final_attn_token_to_image
-        fa_ti_q_proj = block.q_proj
-        fa_ti_v_proj = block.v_proj
-        in_dim, out_dim = block.embedding_dim, block.internal_dim
-        self.fa_ti_q_proj_A = nn.Linear(in_dim, r, bias=False)
-        self.fa_ti_q_proj_B = nn.Linear(r, out_dim, bias=False)
-        self.fa_ti_v_proj_A = nn.Linear(in_dim, r, bias=False)
-        self.fa_ti_v_proj_B = nn.Linear(r, out_dim, bias=False)
-        block.q_proj = _LoRA_qkv_proj(fa_ti_q_proj, self.fa_ti_q_proj_A, self.fa_ti_q_proj_B)
-        block.v_proj = _LoRA_qkv_proj(fa_ti_v_proj, self.fa_ti_v_proj_A, self.fa_ti_v_proj_B)
-
-        self.reset_parameters()
+        # self.reset_parameters()
         self.mask_decoder = mask_decoder
+    
+    def lorify_qkv_proj(self, attn: nn.Module):
+        cust_state_dict = nn.ParameterDict()
 
-    def save_lora_parameters(self, filename: str) -> None:
+        q_proj = attn.q_proj
+        v_proj = attn.v_proj
+
+        in_dim, out_dim = attn.embedding_dim, attn.internal_dim
+
+        # A and B for query
+        w_a_linear_q = nn.Linear(in_dim, self.r, bias=False)
+        w_b_linear_q = nn.Linear(self.r, out_dim, bias=False)
+
+        # A and B for value
+        w_a_linear_v = nn.Linear(in_dim, self.r, bias=False)
+        w_b_linear_v = nn.Linear(self.r, out_dim, bias=False)
+
+        cust_state_dict["a_q"] = w_a_linear_q.weight
+        cust_state_dict["b_q"] = w_b_linear_q.weight
+        cust_state_dict["a_v"] = w_a_linear_v.weight
+        cust_state_dict["b_v"] = w_b_linear_v.weight
+
+        # Error: torch.FloatTensor is not a Module subclass
+
+
+        attn.q_proj = _LoRA_qkv_proj(q_proj, w_a_linear_q, w_b_linear_q)
+        attn.v_proj = _LoRA_qkv_proj(v_proj, w_a_linear_v, w_b_linear_v)
+
+        return cust_state_dict
+    
+    def save_lora_parameters(self,filename:str) -> None:
         r"""Only safetensors is supported now.
 
         pip install safetensor if you do not have one installed yet.
@@ -173,36 +143,14 @@ class LoRA_Mask_Decoder(nn.Module):
 
         assert filename.endswith(".pt") or filename.endswith('.pth')
 
-        num_layer = len(self.w_As)  # actually, it is half
-        a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
-        b_tensors = {f"w_b_{i:03d}": self.w_Bs[i].weight for i in range(num_layer)}
-        sa_a_tensors = {f"sa_a_{i:03d}": self.self_attn_As[i].weight for i in range(len(self.self_attn_As))}
-        sa_b_tensors = {f"sa_b_{i:03d}": self.self_attn_Bs[i].weight for i in range(len(self.self_attn_Bs))}
-        cti_a_tensors = {f"cti_a_{i:03d}": self.cross_attn_ti_As[i].weight for i in range(len(self.cross_attn_ti_As))}
-        cti_b_tensors = {f"cti_b_{i:03d}": self.cross_attn_ti_Bs[i].weight for i in range(len(self.cross_attn_ti_Bs))}
-        cit_a_tensors = {f"cit_a_{i:03d}": self.cross_attn_it_As[i].weight for i in range(len(self.cross_attn_it_As))}
-        cit_b_tensors = {f"cit_b_{i:03d}": self.cross_attn_it_Bs[i].weight for i in range(len(self.cross_attn_it_Bs))}
-        fa_ti_tensors = {'fati_qa': self.fa_ti_q_proj_A.weight, 'fati_qb': self.fa_ti_q_proj_B.weight,
-                         'fati_va': self.fa_ti_v_proj_A.weight,
-                         'fati_vb': self.fa_ti_v_proj_B.weight}
-        prompt_encoder_tensors = {}
-        mask_decoder_tensors = {}
+        raw_state_dict = self.state_dict()
+        # remove mask_decoder state_dict
+        state_dict = {
+            k: v for k, v in raw_state_dict.items() if 'mask_decoder' not in k
+        }
 
-        # save prompt encoder, only `state_dict`, the `named_parameter` is not permitted
-        if isinstance(self.mask_decoder, torch.nn.DataParallel) or isinstance(self.mask_decoder,
-                                                                     torch.nn.parallel.DistributedDataParallel):
-            state_dict = self.mask_decoder.module.state_dict()
-        else:
-            state_dict = self.mask_decoder.state_dict()
-        for key, value in state_dict.items():
-            if 'transformer' not in key:
-                mask_decoder_tensors[key] = value
-
-        merged_dict = {**a_tensors, **b_tensors, **sa_a_tensors, **sa_b_tensors, **cti_a_tensors, **cti_b_tensors,
-                       **cit_a_tensors, **cit_b_tensors, **prompt_encoder_tensors, **mask_decoder_tensors,
-                       **fa_ti_tensors}
-        torch.save(merged_dict, filename)
-
+        torch.save(state_dict, filename)
+    
     def load_lora_parameters(self, filename: str) -> None:
         r"""Only safetensors is supported now.
 
@@ -211,86 +159,144 @@ class LoRA_Mask_Decoder(nn.Module):
         load both lora and fc parameters.
         """
 
-        assert filename.endswith(".pt") or filename.endswith('.pth')
-
         state_dict = torch.load(filename)
-
-        for i, w_A_linear in enumerate(self.w_As):
-            saved_key = f"w_a_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            w_A_linear.weight = Parameter(saved_tensor)
-
-        for i, w_B_linear in enumerate(self.w_Bs):
-            saved_key = f"w_b_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            w_B_linear.weight = Parameter(saved_tensor)
-
-        for i, sa_A_linear in enumerate(self.self_attn_As):
-            saved_key = f"sa_a_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            sa_A_linear.weight = Parameter(saved_tensor)
-
-        for i, sa_B_linear in enumerate(self.self_attn_Bs):
-            saved_key = f"sa_b_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            sa_B_linear.weight = Parameter(saved_tensor)
-
-        for i, cti_a_linear in enumerate(self.cross_attn_ti_As):
-            saved_key = f"cti_a_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            cti_a_linear.weight = Parameter(saved_tensor)
-
-        for i, cti_b_linear in enumerate(self.cross_attn_ti_Bs):
-            saved_key = f"cti_b_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            cti_b_linear.weight = Parameter(saved_tensor)
-
-        for i, cit_a_linear in enumerate(self.cross_attn_it_As):
-            saved_key = f"cit_a_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            cit_a_linear.weight = Parameter(saved_tensor)
-
-        for i, cit_b_linear in enumerate(self.cross_attn_it_Bs):
-            saved_key = f"cit_b_{i:03d}"
-            saved_tensor = state_dict[saved_key]
-            cit_b_linear.weight = Parameter(saved_tensor)
-
-        self.fa_ti_q_proj_A.weight = Parameter(state_dict["fati_qa"])
-        self.fa_ti_q_proj_B.weight = Parameter(state_dict["fati_qb"])
-        self.fa_ti_v_proj_A.weight = Parameter(state_dict["fati_va"])
-        self.fa_ti_v_proj_B.weight = Parameter(state_dict["fati_vb"])
-
-        decoder_dict = self.mask_decoder.state_dict()
-        decoder_keys = decoder_dict.keys()
-
-        # load mask decoder
-        mask_decoder_keys = [k for k in decoder_keys if 'transformer' not in k]
-        mask_decoder_values = [state_dict[k] for k in mask_decoder_keys]
-        mask_decoder_new_state_dict = {k: v for k, v in zip(mask_decoder_keys, mask_decoder_values)}
-        decoder_dict.update(mask_decoder_new_state_dict)
-        self.mask_decoder.load_state_dict(decoder_dict)
-
-    def reset_parameters(self) -> None:
-        for w_A in self.w_As:
-            nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
-        for w_B in self.w_Bs:
-            nn.init.zeros_(w_B.weight)
-        for w_A in self.self_attn_As:
-            nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
-        for w_B in self.self_attn_Bs:
-            nn.init.zeros_(w_B.weight)
-        for w_A in self.cross_attn_ti_As:
-            nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
-        for w_B in self.cross_attn_ti_Bs:
-            nn.init.zeros_(w_B.weight)
-        for w_A in self.cross_attn_it_As:
-            nn.init.kaiming_uniform_(w_A.weight, a=math.sqrt(5))
-        for w_B in self.cross_attn_it_Bs:
-            nn.init.zeros_(w_B.weight)
-        nn.init.kaiming_uniform_(self.fa_ti_q_proj_A.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.fa_ti_q_proj_B.weight)
-        nn.init.kaiming_uniform_(self.fa_ti_v_proj_A.weight, a=math.sqrt(5))
-        nn.init.zeros_(self.fa_ti_v_proj_B.weight)
+        self.load_state_dict(state_dict)
 
     def forward(self, *args, **kwargs):
         return self.mask_decoder(*args, **kwargs)
+
+from segment_anything.modeling.tiny_vit_sam import TinyViT
+
+
+class _LoRA_Tiny_qkv(nn.Module):
+    """In Sam it is implemented as
+    self.qkv = nn.Linear(dim, h, bias=qkv_bias)
+    B, N, _ = x.shape
+    qkv = self.qkv(x)
+    q, k, v = qkv.view(B, N, self.num_heads, -
+                        1).split([self.key_dim, self.key_dim, self.d], dim=3)
+    """
+
+    def __init__(
+            self,
+            qkv: nn.Module,
+            key_dim: int,
+            num_heads: int,
+            linear_a_q: nn.Module,
+            linear_b_q: nn.Module,
+            linear_a_v: nn.Module,
+            linear_b_v: nn.Module,
+            h: int,
+    ):
+        super().__init__()
+        self.qkv = qkv
+
+        self.linear_a_q = linear_a_q
+        self.linear_b_q = linear_b_q
+
+        self.linear_a_v = linear_a_v
+        self.linear_b_v = linear_b_v
+
+        self.key_dim = key_dim
+        self.num_heads = num_heads
+        self.h = h
+
+    def forward(self, x):
+        B,N,_ = x.shape
+        qkv = self.qkv(x)  # B,N,N,3*org_C
+        qkv = qkv.view(B,N,self.num_heads,-1)
+
+        new_q = self.linear_b_q(self.linear_a_q(x))
+        new_q = new_q.view(B,N,self.num_heads,-1)
+        new_v = self.linear_b_v(self.linear_a_v(x))
+        new_v = new_v.view(B,N,self.num_heads,-1)
+
+        qkv[:, :, :, :self.key_dim] += new_q
+        qkv[:, :, :, 2*self.key_dim:] += new_v
+
+        return qkv.view(B,N,-1)
+
+
+class LoRA_Tiny_Image_Encoder(nn.Module):
+    def __init__(self,image_encoder:TinyViT,r:int):
+        super(LoRA_Tiny_Image_Encoder,self).__init__()
+
+        assert r > 0
+        self.r = r
+
+        # Surgery for the image encoder
+        for param in image_encoder.parameters():
+            param.requires_grad = False
+        
+        self.self_attn = nn.ModuleList()
+
+        for layer in image_encoder.layers[1:]:
+            sub_list = nn.ModuleList()
+            for blk in layer.blocks:
+                sub_list.append(self.lorify_attn(blk.attn))
+            self.self_attn.append(sub_list)
+        
+        self.image_encoder =  image_encoder
+    
+    def lorify_attn(self, attn: nn.Module):
+        cust_state_dict = nn.ParameterDict()
+
+        key_dim = attn.key_dim
+        nh_kd = attn.nh_kd
+        dh = attn.dh
+        num_heads = attn.num_heads
+        dim = attn.qkv.in_features
+        h = attn.h
+
+        linear_a_q = nn.Linear(dim, self.r, bias=False)
+        linear_b_q = nn.Linear(self.r, nh_kd, bias=False)
+
+        linear_a_v = nn.Linear(dim, self.r, bias=False)
+        linear_b_v = nn.Linear(self.r, dh, bias=False)
+
+        cust_state_dict["a_q"] = linear_a_q.weight
+        cust_state_dict["b_q"] = linear_b_q.weight
+        cust_state_dict["a_v"] = linear_a_v.weight
+        cust_state_dict["b_v"] = linear_b_v.weight
+
+        attn.qkv = _LoRA_Tiny_qkv(
+            attn.qkv, key_dim, num_heads,
+            linear_a_q, linear_b_q, linear_a_v, linear_b_v,
+            h,
+        )
+
+        return cust_state_dict
+
+    def save_lora_parameters(self,filename:str) -> None:
+        r"""Only safetensors is supported now.
+
+        pip install safetensor if you do not have one installed yet.
+
+        save both lora and fc parameters.
+        """
+
+        assert filename.endswith(".pt") or filename.endswith('.pth')
+
+        raw_state_dict = self.state_dict()
+        # remove mask_decoder state_dict
+        state_dict = {
+            k: v for k, v in raw_state_dict.items() if 'image_encoder' not in k
+        }
+
+        torch.save(state_dict, filename)
+    
+    def load_lora_parameters(self, filename: str) -> None:
+        r"""Only safetensors is supported now.
+
+        pip install safetensor if you do not have one installed yet.\
+
+        load both lora and fc parameters.
+        """
+
+        state_dict = torch.load(filename)
+        self.load_state_dict(state_dict)
+
+
+    def forward(self, *args, **kwargs):
+        return self.image_encoder(*args, **kwargs)
+

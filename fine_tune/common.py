@@ -1,80 +1,20 @@
-# DetectionDataset / torch Dataset utils
-
-# torch Dataset format:
-# __getitem__ returns a tuple (cls, embedding, points_prompt, box_prompt, mask_prompt, gt_masks, gt_mask?)--already in tensor format, having been processed by .encoder and .prompt_encoder.
-
-# A common format for turning a DetectionDataset into a torch Dataset:
-# a function from Detections to an iterable (with length) of tuples (cls, points_prompt, box_prompt, mask_prompt, gt_masks, gt_mask?)
-# if gt_mask is None, then the gt_mask should be the highest-IoU gt_mask in gt_masks
-
 from supervision import DetectionDataset,Detections
+from segment_anything import SamPredictor
 
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-
 import numpy as np
 from numpy import ndarray
-
 import cv2
-
-from segment_anything import SamPredictor
-
-from typing import Iterable, List
 
 from tqdm import tqdm
 
-# notes for what these should look like / what they become:
-
-# here's the predict() function from the SAM predictor:
-
-from typing import Dict, Union, Tuple
-
-# Coords = Tuple[ndarray,ndarray] # shape (N, 2), dtype float32; shape (N,), dtype bool
-Box = ndarray # shape (4,), dtype float32, in XYXY format
-BoolMask = ndarray # shape (H,W), dtype bool
-FloatMask = ndarray # shape (H,W), dtype float32, in [0,1]
-
-# Prompt = Dict[str,Union[Coords,Box,BoolMask]]
-
-# using a dataclass instead:
-from dataclasses import dataclass,asdict
-
-@dataclass
-class Prompt:
-    points: ndarray = None
-    labels: ndarray = None
-    box: Box = None
-    mask: BoolMask = None # TODO: also allow FloatMask
-
-    gt_mask: BoolMask = None
-    gt_masks: BoolMask = None
-
-    multimask: bool = False
-
-    def __post_init__(self):
-        # assert self.points is not None or self.box is not None or self.mask is not None,"Prompt must have at least one of coords, box, or mask"
-
-        if self.box is not None:
-            assert self.box.shape == (4,),f"box must have shape (4,), not {self.box.shape}"
-
-        # default to all points being foreground
-        if self.points is not None and self.labels is None:
-            self.labels = np.ones(len(self.points),dtype=bool)
-        if self.points is not None or self.labels is not None:
-            assert len(self.points.shape) == 2 and self.points.shape[1] == 2,f"points must have shape (N,2), not {self.points.shape}"
-            assert len(self.labels.shape) == 1,f"points must have shape (N,), not {self.points.shape}"
-            assert self.labels.dtype == bool,f"labels must have dtype bool, not {self.labels.dtype}"
-            assert len(self.points) == len(self.labels),f"points and labels must have the same length, not {len(self.points)} and {len(self.labels)}"
-
-        if self.mask is not None:
-            assert len(self.mask.shape) == 2,f"mask must have shape (H,W), not {self.mask.shape}"
-            assert self.mask.dtype == bool,f"mask must have dtype bool, not {self.mask.dtype}"
-
-        assert (self.gt_mask is None) != (self.gt_masks is None),"Prompt must have exactly one of gt_mask or gt_masks"
-
+from typing import Any, Dict, Union, Tuple,Iterable, List
 
 import os
+
+from .prompts import Prompt,ContextPair
 
 import hashlib
 m = hashlib.sha256()
@@ -84,8 +24,6 @@ def hash_img_name(img_name: str) -> str:
     return m.hexdigest()
 
 default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-should_cache = False
 
 from torch.nn import functional as F
 
@@ -107,12 +45,28 @@ class SamDataset(Dataset):
         items = [(img_name,list(self.detections_to_prompts(images[img_name],dets))) for img_name,dets in tqdm(self.dataset.annotations.items())]
         self.prompts = [(img_name,prompt) for img_name,prompts in items for prompt in prompts]
 
-        # make tmp directory for feature embeddings
-        if not os.path.exists('tmp'):
-            os.mkdir('tmp')
-
     def __len__(self):
         return len(self.prompts)
+    
+    def img_to_embedding(self, img: np.ndarray):
+        predictor = self.predictor
+
+        predictor.set_image(img)
+        embedding = predictor.features[0]
+
+        assert torch.is_tensor(embedding),f"embedding is not a tensor, it is {type(embedding)}"
+        assert len(embedding.shape) == 3,f"embedding shape is {embedding.shape}"
+
+        original_size = predictor.original_size
+        input_size = predictor.input_size
+
+        unresized_img = torch.as_tensor(img, device=self.device)
+        unresized_img = unresized_img.permute(2, 0, 1).contiguous()[None, :, :, :]
+        unresized_img = (unresized_img - predictor.model.pixel_mean) / predictor.model.pixel_std
+
+        resized_img = predictor.resized_img.to(self.device)
+
+        return embedding,(input_size,original_size),(unresized_img, resized_img)
 
     def __getitem__(self, idx:int):
 
@@ -121,30 +75,8 @@ class SamDataset(Dataset):
         img = self.dataset.images[img_name]
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # check if we've already computed the embedding
-        clean_img_name = hash_img_name(img_name) # avoid unsafe characters and collisions
-        embedding_path = os.path.join('tmp',clean_img_name+'.np')
+        embedding,sizing,imgs = self.img_to_embedding(img)
 
-        predictor = self.predictor
-
-        if should_cache and os.path.exists(embedding_path):
-            embedding,input_size,original_size,resized_img = torch.load(embedding_path)
-        else:
-            predictor.set_image(img)
-            embedding = predictor.features[0]
-
-            assert torch.is_tensor(embedding),f"embedding is not a tensor, it is {type(embedding)}"
-            assert len(embedding.shape) == 3,f"embedding shape is {embedding.shape}"
-
-            original_size = predictor.original_size
-            input_size = predictor.input_size
-
-            resized_img = predictor.img.to(self.device)
-
-            # save the embedding
-            # torch.save((embedding,input_size,original_size,resized_img),embedding_path)
-        
-        sizing = (input_size,original_size)
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
 
         decoder_input = {
@@ -152,7 +84,7 @@ class SamDataset(Dataset):
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, sizing, img, resized_img
+        return decoder_input, gt_masks, sizing, img, imgs
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -196,11 +128,40 @@ class SamDataset(Dataset):
             masks=mask_input_torch,
         )
 
+        if prompt.context is not None:
+            assert len(prompt.context) == 1, "context size must be 1 for now"
+            contexts = []
+            for context in prompt.context:
+                img = context.img
+                mask = context.mask
+
+                if mask_input is not None:
+                    ctx_mask_input_torch = torch.as_tensor(mask, dtype=torch.float, device=self.device)
+                    ctx_mask_input_torch = ctx_mask_input_torch[None, None, :, :]
+                    ctx_mask_input_torch = F.interpolate(ctx_mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
+
+                # encode with prompt encoder
+                _, ctx_dense_embeddings = self.predictor.model.prompt_encoder(
+                    masks=mask[None,None,...].to(self.device),
+                )
+
+                ctx_embedding,*_ = self.img_to_embedding(img)
+                ctx_embedding += self.predictor.model.prompt_encoder.context_embed
+
+                ctx_embedding += ctx_dense_embeddings
+
+                contexts.append(ctx_embedding)
+            
+            context_torch = torch.stack(contexts,dim=0)
+            assert len(context_torch.shape) == 4,f"context_torch shape is {context_torch.shape}"
+
+
         decoder_input = {
             "image_pe": self.predictor.model.prompt_encoder.get_dense_pe().to(self.device),
             "sparse_prompt_embeddings": sparse_embeddings.to(self.device),
             "dense_prompt_embeddings": dense_embeddings.to(self.device),
             "multimask_output": prompt.multimask,
+            #"context_embeddings": context_torch.to(self.device) if prompt.context is not None else None,
         }
 
         gt_mask = prompt.gt_mask
@@ -295,7 +256,6 @@ class SamEverythingDataset(SamDataset):
                 multimask=True,
             )
 
-from math import ceil
 class RandomPointDataset(SamDataset):
     def __init__(self, *args, points_per_img=50, top_k=3, **kwargs):
         self.points_per_img = points_per_img
@@ -324,6 +284,8 @@ class SamNextMaskDataset(SamDataset):
         self.splits_per_img = splits_per_img
         super().__init__(*args, **kwargs)
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
+        if len(dets) == 0:
+            return []
         for i in range(self.splits_per_img):
             # make random permutation of masks
 
@@ -332,7 +294,7 @@ class SamNextMaskDataset(SamDataset):
             mask_idxs = np.argsort(dets.area)[::-1]
 
             new_dets = dets[mask_idxs]
-            split_idx = randint(1,len(dets)-1)
+            split_idx = randint(0,len(dets)-1)
 
             # make combined mask of all pre-split dets, this becomes the mask prompt
             # gt_dets are the ones after the split
@@ -346,7 +308,8 @@ class SamNextMaskDataset(SamDataset):
             )
 
             if self.secondary_prompter is None:
-                return primary_prompt
+                yield primary_prompt
+                continue
 
             # enrich prompt with a secondary prompt
             secondary_prompt_gen = self.secondary_prompter.detections_to_prompts(img, gt_dets)
@@ -365,32 +328,66 @@ class SamSemSegDataset(SamDataset):
             multimask=False,
         )
 
+import random
+class SamInContextDataset(SamDataset):
+    def __init__(
+            self,
+            dataset: DetectionDataset,
+            predictor: SamPredictor,
+            device: str = default_device,
+
+            context_size: int = 1,
+            upsampling_factor: int = 3,
+            main_dataset: DetectionDataset = None,
+            dummy: bool = False
+            ):
+        super().__init__(dataset, predictor, device)
+
+        assert context_size == 1, "context_size must be 1 for now"
+        self.context_size = context_size
+
+        assert main_dataset is not None, "main_dataset must be supplied"
+
+        self.main_dataset = main_dataset
+
+        self.upsampling_factor = upsampling_factor
+
+        self.positive_examples = list(img for img,dets in self.main_dataset.annotations.items() if len(dets) > 0)
+
+        self.dummy = dummy
+    
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> Union[List[Prompt], Iterable[Prompt]]:
+        for prompt in self.main_dataset.detections_to_prompts(img, dets):
+            for i in range(self.upsampling_factor):
+
+                if self.dummy:
+                    context = [ContextPair(
+                        img=img,
+                        mask=get_combined_mask(img, dets),
+                    )]
+                else:
+                    context_name = random.sample(self.positive_examples, self.context_size)
+
+                    context = []
+                    for context_name in context:
+                        context_img = self.main_dataset.images[context_name]
+                        context_dets = self.main_dataset.annotations[context_name]
+
+                        merged_mask = get_combined_mask(context_img, context_dets)
+
+                        context.append(ContextPair(
+                            img=context_img,
+                            mask=merged_mask,
+                        ))
+
+                yield Prompt(
+                    **prompt._asdict(),
+                    context=context,
+                )
+
 #
 # UTILS
 #
-
-# def get_closest_dets(point: Tensor, dets: Detections, top_percent: float = 0.0) -> Detections:
-#     # get closest detection to point, by avg L2 distance of bbox corners
-#     xyxy = dets.xyxy
-#     corners = torch.stack([
-#         torch.stack([xyxy[:,0],xyxy[:,1]],dim=1),
-#         torch.stack([xyxy[:,2],xyxy[:,3]],dim=1),
-#         torch.stack([xyxy[:,0],xyxy[:,3]],dim=1),
-#         torch.stack([xyxy[:,2],xyxy[:,1]],dim=1),
-#     ],dim=1)
-
-#     # avg L2 distance
-#     l2_dist = torch.norm(corners - point[...,None],dim=1).mean(dim=0)
-
-#     assert l2_dist.shape == (len(dets),), "l2 dist shape is wrong"
-#     sorted_by_dist = torch.argsort(l2_dist)
-
-#     k = ceil(len(dets) * top_percent / 100)
-#     k = max(k,1)
-
-#     return dets[sorted_by_dist[:k]]
-
-# rewritten in numpy:
 
 from supervision.dataset.utils import approximate_mask_with_polygons
 def dets_to_polygonss(dets):
