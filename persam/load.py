@@ -54,14 +54,15 @@ def load_image(
     return image, mask
 
 
-def load_predictor(sam_type: str = "vit_h") -> SamPredictor:
+def load_predictor(sam_type: str = "vit_h", *args, **kwargs) -> SamPredictor:
     if sam_type == "vit_h":
         sam_type, sam_ckpt = "vit_h", "weights/sam_vit_h_4b8939.pth"
-        sam = sam_model_registry[sam_type](checkpoint=sam_ckpt).cuda()
+        sam = sam_model_registry[sam_type](*args,**kwargs,checkpoint=sam_ckpt).cuda()
     elif sam_type == "vit_t":
         sam_type, sam_ckpt = "vit_t", "weights/mobile_sam.pt"
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        sam = sam_model_registry[sam_type](checkpoint=sam_ckpt).to(device=device)
+        print(kwargs)
+        sam = sam_model_registry[sam_type](*args,**kwargs,checkpoint=sam_ckpt).to(device=device)
         sam.eval()
     
     sam.sam_type = sam_type

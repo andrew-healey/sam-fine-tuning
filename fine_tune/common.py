@@ -14,7 +14,7 @@ from typing import Any, Dict, Union, Tuple,Iterable, List
 
 import os
 
-from .prompts import Prompt,ContextPair
+from .prompts import Prompt,ContextPair,ClassInfo
 
 import hashlib
 m = hashlib.sha256()
@@ -102,6 +102,11 @@ class SamDataset(Dataset):
             "context_embeddings": context_torch.to(self.device),
         }
 
+    def cls_to_tensors(self, cls_info: ClassInfo):
+        if cls_info is None:
+            return None
+        return F.one_hot(torch.as_tensor(cls_info.gt_class, dtype=torch.long, device=self.device), num_classes=cls_info.num_classes).float().to(self.device)
+
     def __getitem__(self, idx:int):
 
         img_name,prompt = self.prompts[idx]
@@ -115,13 +120,15 @@ class SamDataset(Dataset):
 
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
 
+        gt_cls_logits = self.cls_to_tensors(prompt.cls_info)
+
         decoder_input = {
             "image_embeddings": embedding.to(self.device),
             **ctx_input,
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, sizing, img, imgs
+        return decoder_input, gt_masks, gt_cls_logits, sizing, img, imgs
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -493,3 +500,9 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor) -> Tuple[Tensor,Tens
     assert torch.max(ious) == best_iou, "min-finding is wrong"
 
     return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx
+
+def make_refinement_prompt(pred_mask: Tensor, gt_binary_mask: Tensor):
+    return Prompt(
+        mask=np.array(pred_mask.cpu().detach() > 0),
+        gt_mask=np.array(gt_binary_mask.cpu().detach() > 0),
+    )

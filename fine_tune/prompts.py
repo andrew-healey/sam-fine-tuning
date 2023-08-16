@@ -22,6 +22,15 @@ class ContextPair:
     gt_mask: np.ndarray
 
 @dataclass
+class ClassInfo:
+    num_classes: int
+    gt_class: np.ndarray # must have same length as gt_masks
+
+    def __post_init__(self):
+        if len(self.gt_class) > 0:
+            assert np.max(self.gt_class) < self.num_classes,f"gt_class must be less than num_classes. But gt_class = {self.gt_class} and num_classes = {self.num_classes}"
+
+@dataclass
 class Prompt:
     points: ndarray = None
     labels: ndarray = None
@@ -32,6 +41,7 @@ class Prompt:
     gt_masks: BoolMask = None
 
     context: List[ContextPair] = None
+    cls_info: ClassInfo = None
 
     multimask: bool = False
 
@@ -55,6 +65,14 @@ class Prompt:
             assert self.mask.dtype == bool,f"mask must have dtype bool, not {self.mask.dtype}"
 
         assert (self.gt_mask is None) != (self.gt_masks is None),"Prompt must have exactly one of gt_mask or gt_masks"
+
+        if self.cls_info is not None:
+            assert self.cls_info.num_classes > 0,f"num_classes must be positive, not {self.cls_info.num_classes}"
+
+            if self.gt_mask is not None:
+                assert self.cls_info.gt_class.shape == (1,),f"gt_class must have shape (1,), not {self.cls_info.gt_class.shape}"
+            else:
+                assert len(self.cls_info.gt_class) == len(self.gt_masks),f"gt_classes must have the same length as gt_masks, not {len(self.cls_info.gt_class)} and {len(self.gt_masks)}"
 
 
 annotator = sv.MaskAnnotator()
