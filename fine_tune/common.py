@@ -67,6 +67,40 @@ class SamDataset(Dataset):
         resized_img = predictor.resized_img.to(self.device)
 
         return embedding,(input_size,original_size),(unresized_img, resized_img)
+    
+    def ctx_to_embeddings(self, ctx: List[ContextPair]):
+        if ctx is None:
+            return {
+                "context_embeddings": None,
+            }
+        assert len(context) == 1, "context size must be 1 for now"
+        contexts = []
+        for context in context:
+            img = context.img
+            mask = context.mask
+
+            ctx_mask_input_torch = torch.as_tensor(mask, dtype=torch.float, device=self.device)
+            ctx_mask_input_torch = ctx_mask_input_torch[None, None, :, :]
+            ctx_mask_input_torch = F.interpolate(ctx_mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
+
+            # encode with prompt encoder
+            _, ctx_dense_embeddings = self.predictor.model.prompt_encoder(
+                masks=mask[None,None,...].to(self.device),
+            )
+
+            ctx_embedding,*_ = self.img_to_embedding(img)
+            ctx_embedding += self.predictor.model.prompt_encoder.context_embed
+
+            ctx_embedding += ctx_dense_embeddings
+
+            contexts.append(ctx_embedding)
+        
+        context_torch = torch.stack(contexts,dim=0)
+        assert len(context_torch.shape) == 4,f"context_torch shape is {context_torch.shape}"
+
+        return {
+            "context_embeddings": context_torch.to(self.device),
+        }
 
     def __getitem__(self, idx:int):
 
@@ -77,10 +111,13 @@ class SamDataset(Dataset):
 
         embedding,sizing,imgs = self.img_to_embedding(img)
 
+        ctx_input = self.ctx_to_embeddings(prompt.context)
+
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
 
         decoder_input = {
             "image_embeddings": embedding.to(self.device),
+            **ctx_input,
             **prompt_input,
         }
 
@@ -91,7 +128,6 @@ class SamDataset(Dataset):
         input_size, original_size = sizing
 
         # Transform input prompts
-
         point_coords = prompt.points
         point_labels = prompt.labels
 
@@ -128,40 +164,11 @@ class SamDataset(Dataset):
             masks=mask_input_torch,
         )
 
-        if prompt.context is not None:
-            assert len(prompt.context) == 1, "context size must be 1 for now"
-            contexts = []
-            for context in prompt.context:
-                img = context.img
-                mask = context.mask
-
-                if mask_input is not None:
-                    ctx_mask_input_torch = torch.as_tensor(mask, dtype=torch.float, device=self.device)
-                    ctx_mask_input_torch = ctx_mask_input_torch[None, None, :, :]
-                    ctx_mask_input_torch = F.interpolate(ctx_mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
-
-                # encode with prompt encoder
-                _, ctx_dense_embeddings = self.predictor.model.prompt_encoder(
-                    masks=mask[None,None,...].to(self.device),
-                )
-
-                ctx_embedding,*_ = self.img_to_embedding(img)
-                ctx_embedding += self.predictor.model.prompt_encoder.context_embed
-
-                ctx_embedding += ctx_dense_embeddings
-
-                contexts.append(ctx_embedding)
-            
-            context_torch = torch.stack(contexts,dim=0)
-            assert len(context_torch.shape) == 4,f"context_torch shape is {context_torch.shape}"
-
-
         decoder_input = {
             "image_pe": self.predictor.model.prompt_encoder.get_dense_pe().to(self.device),
             "sparse_prompt_embeddings": sparse_embeddings.to(self.device),
             "dense_prompt_embeddings": dense_embeddings.to(self.device),
             "multimask_output": prompt.multimask,
-            #"context_embeddings": context_torch.to(self.device) if prompt.context is not None else None,
         }
 
         gt_mask = prompt.gt_mask
@@ -197,6 +204,8 @@ class SamBoxDataset(SamDataset):
         for det in dets:
             det_box,det_mask,det_cls,det_score,_ = det
 
+            assert det_box is not None, "det_box is None"
+
             yield Prompt(
                 box=det_box,
                 gt_mask=det_mask,
@@ -204,8 +213,9 @@ class SamBoxDataset(SamDataset):
             )
 
 class SamPointDataset(SamDataset):
-    def __init__(self, *args, points_per_mask=20, **kwargs):
+    def __init__(self, *args, points_per_mask=20, multimask=False, **kwargs):
         self.points_per_mask = points_per_mask
+        self.multimask = multimask
         super().__init__(*args, **kwargs)
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
         for det in dets:
@@ -225,7 +235,7 @@ class SamPointDataset(SamDataset):
                     points=points,
                     labels=label,
                     gt_mask=det_mask,
-                    multimask=True
+                    multimask=self.multimask
                 )
 
 from segment_anything.utils.amg import build_point_grid

@@ -63,3 +63,27 @@ def shrink_dataset_to_size(
     return DetectionDataset(
         classes=dataset.classes, images=new_images, annotations=new_annotations
     )
+
+from torch.utils.data import Dataset
+
+def save_torch_dataset(name: str, dataset: Dataset):
+    folder = os.path.join("data",name)
+    os.rmdir(folder, ignore_errors=True)
+    os.mkdirs(folder)
+
+    for i, entry in enumerate(dataset):
+        torch.save(entry, os.path.join(folder, f"{i}.pt"))
+
+from glob import glob
+
+class CachedDataset(Dataset):
+    def __init__(self, files: List[str]):
+        self.files = files
+    def __len__(self):
+        return len(self.files)
+    def __getitem__(self, idx):
+        return torch.load(self.files[idx])
+
+def load_torch_datasets() -> Dataset:
+    files = glob("data/**/*.pt")
+    return CachedDataset(files)

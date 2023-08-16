@@ -2,11 +2,11 @@ data/
 .venv/
 wandb/
 
-# *.test.ipynb
-Climbing-*
 
 tmp/
 
 __pycache__/
 
 *.pt
+
+runs/
