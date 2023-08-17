@@ -87,3 +87,41 @@ class CachedDataset(Dataset):
 def load_torch_datasets() -> Dataset:
     files = glob("data/**/*.pt")
     return CachedDataset(files)
+
+def merge_datasets(
+    old_dataset: DetectionDataset, new_dataset: DetectionDataset,overwrite=False
+)-> DetectionDataset:
+
+    if old_dataset.classes != new_dataset.classes:
+        new_classes = [*old_dataset.classes,*new_dataset.classes]
+        # switch class_ids in new_dataset to match old_dataset
+        new_annotations = {}
+        for img_name, detections in new_dataset.annotations.items():
+            new_detections = sv.Detections.merge([detections])
+            new_detections.class_id += len(old_dataset.classes)
+            new_annotations[img_name] = new_detections
+    else:
+        new_classes = old_dataset.classes
+        new_annotations = new_dataset.annotations
+    
+    # now merge annotations for matching images
+
+    old_annotations = {**old_dataset.annotations}
+
+    for img_name, detections in new_annotations.items():
+        if img_name in old_annotations and not overwrite:
+            old_annotations[img_name] = sv.Detections.merge([old_annotations[img_name],detections])
+        else:
+            old_annotations[img_name] = detections
+    
+    return DetectionDataset(
+        classes=new_classes,
+        images={**old_dataset.images,**new_dataset.images},
+        annotations=old_annotations,
+    )
+
+def merge_many_datasets(datasets: List[DetectionDataset], overwrite=True):
+    merged_dataset = DetectionDataset(classes=[],images={},annotations={})
+    for dataset in datasets:
+        merged_dataset = merge_datasets(merged_dataset,dataset,overwrite=overwrite)
+    return merged_dataset

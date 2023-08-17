@@ -1,6 +1,8 @@
 from supervision import DetectionDataset,Detections
 from segment_anything import SamPredictor
 
+from .datasets import merge_many_datasets
+
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
@@ -401,6 +403,21 @@ class SamInContextDataset(SamDataset):
                     **prompt._asdict(),
                     context=context,
                 )
+
+class SamComboDataset(SamDataset):
+    def __init__(self, sam_datasets: List[SamDataset]):
+
+        # merge datasets
+        self.dataset = merge_many_datasets([sam_dataset.dataset for sam_dataset in sam_datasets])
+
+        self.prompts = []
+
+        assert len(sam_datasets) > 0, "sam_datasets must not be empty"
+        self.predictor = sam_datasets[0].predictor
+        self.device =  sam_datasets[0].device
+
+        for dataset in sam_datasets:
+            self.prompts.extend(dataset.prompts)
 
 #
 # UTILS
