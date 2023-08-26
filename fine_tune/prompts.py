@@ -74,3 +74,11 @@ class Prompt:
             else:
                 assert len(self.cls_info.gt_class) == len(self.gt_masks),f"gt_classes must have the same length as gt_masks, not {len(self.cls_info.gt_class)} and {len(self.gt_masks)}"
 
+
+from torch import Tensor
+def make_refinement_prompt(pred_mask: Tensor, gt_binary_mask: Tensor):
+    return Prompt(
+        mask=np.array(pred_mask.cpu().detach() > 0),
+        gt_mask=np.array(gt_binary_mask.cpu().detach() > 0),
+        multimask=False
+    )

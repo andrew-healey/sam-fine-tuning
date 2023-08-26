@@ -1,3 +1,4 @@
+from fine_tune.prompts import Prompt
 from supervision import DetectionDataset,Detections
 from segment_anything import SamPredictor
 
@@ -419,6 +420,16 @@ class SamComboDataset(SamDataset):
         for dataset in sam_datasets:
             self.prompts.extend(dataset.prompts)
 
+class SamDummyMaskDataset(SamDataset):
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> Union[List[Prompt], Iterable[Prompt]]:
+        for det in dets:
+            _,det_mask,*_ = det
+            yield Prompt(
+                mask=det_mask,
+                gt_mask=det_mask,
+                multimask=False,
+            )
+
 #
 # UTILS
 #
@@ -517,9 +528,3 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor) -> Tuple[Tensor,Tens
     assert torch.max(ious) == best_iou, "min-finding is wrong"
 
     return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx
-
-def make_refinement_prompt(pred_mask: Tensor, gt_binary_mask: Tensor):
-    return Prompt(
-        mask=np.array(pred_mask.cpu().detach() > 0),
-        gt_mask=np.array(gt_binary_mask.cpu().detach() > 0),
-    )

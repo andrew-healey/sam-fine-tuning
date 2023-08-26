@@ -44,8 +44,9 @@ def show_confusion_matrix(gt_classes: List[int], pred_classes: List[int], class_
 
 box_annotator = sv.BoxAnnotator()
 
-def render_prompt(name,prompt,sv_dataset):
-    img = sv_dataset.images[name]
+def render_prompt(img,prompt,sv_dataset):
+    if isinstance(img,str):
+        img = sv_dataset.images[img]
     img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
 
     gt_masks = prompt.gt_mask[None,...] if prompt.gt_mask is not None else prompt.gt_masks

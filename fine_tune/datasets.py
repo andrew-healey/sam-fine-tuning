@@ -125,3 +125,14 @@ def merge_many_datasets(datasets: List[DetectionDataset], overwrite=True):
     for dataset in datasets:
         merged_dataset = merge_datasets(merged_dataset,dataset,overwrite=overwrite)
     return merged_dataset
+
+import os,cv2
+def load_dir_as_dataset(dir: str) -> DetectionDataset:
+    extensions = ["jpg","png","jpeg"]
+    files = [file for ext in extensions for file in glob(os.path.join(dir,f"*.{ext}"))]
+
+    images = {file: cv2.imread(file) for file in files}
+    annotations = {file: sv.Detections.empty() for file in files}
+    classes = []
+
+    return DetectionDataset(classes=classes,images=images,annotations=annotations)
