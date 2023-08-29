@@ -7,6 +7,7 @@ from .datasets import merge_many_datasets
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 import numpy as np
 from numpy import ndarray
 import cv2
@@ -37,6 +38,8 @@ class SamDataset(Dataset):
             dataset: DetectionDataset,
             predictor: SamPredictor,
             device: str = default_device,
+            cache_embeddings: bool = False,
+            cache_dir: str = "./cache",
         ):
 
         self.dataset = dataset
@@ -48,10 +51,22 @@ class SamDataset(Dataset):
         items = [(img_name,list(self.detections_to_prompts(images[img_name],dets))) for img_name,dets in tqdm(self.dataset.annotations.items())]
         self.prompts = [(img_name,prompt) for img_name,prompts in items for prompt in prompts]
 
+        self.cache_embeddings = cache_embeddings
+        self.cache_dir = cache_dir
+
     def __len__(self):
         return len(self.prompts)
     
     def img_to_embedding(self, img: np.ndarray):
+
+        if self.cache_embeddings:
+            img_name = int(img.sum())
+            embedding_path = os.path.join(self.cache_dir,f"{img_name}.pt")
+
+            if os.path.exists(embedding_path):
+                info = torch.load(embedding_path, map_location=self.device)
+                return info
+
         predictor = self.predictor
 
         predictor.set_image(img)
@@ -69,7 +84,12 @@ class SamDataset(Dataset):
 
         resized_img = predictor.resized_img.to(self.device)
 
-        return embedding,(input_size,original_size),(unresized_img, resized_img)
+        ret = embedding,(input_size,original_size),(unresized_img, resized_img)
+
+        if self.cache_embeddings:
+            torch.save(ret, embedding_path)
+
+        return ret
     
     def ctx_to_embeddings(self, ctx: List[ContextPair]):
         if ctx is None:
@@ -105,10 +125,19 @@ class SamDataset(Dataset):
             "context_embeddings": context_torch.to(self.device),
         }
 
-    def cls_to_tensors(self, cls_info: ClassInfo):
-        if cls_info is None:
-            return None
-        return F.one_hot(torch.as_tensor(cls_info.gt_class, dtype=torch.long, device=self.device), num_classes=cls_info.num_classes).float().to(self.device)
+    def cls_to_tensors(self, gt_cls: np.ndarray, gt_clss: np.ndarray):
+        if gt_cls is not None:
+            gt_clss = gt_cls[None,...]
+
+        if gt_clss is not None:
+            gt_clss = torch.as_tensor(gt_clss, dtype=torch.float, device=self.device).to(torch.int64)
+            # one-hot
+            gt_clss_one_hot = F.one_hot(gt_clss, num_classes=len(self.dataset.classes)).to(torch.float32)
+
+            return gt_clss, gt_clss_one_hot
+        else:
+            raise NotImplementedError(f"cls_to_tensors not implemented for this dataset. Dataset type: {type(self.dataset)}.")
+            return None, None
 
     def __getitem__(self, idx:int):
 
@@ -123,7 +152,7 @@ class SamDataset(Dataset):
 
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
 
-        gt_cls_logits = self.cls_to_tensors(prompt.cls_info)
+        gt_cls_info = self.cls_to_tensors(prompt.gt_cls,prompt.gt_clss)
 
         decoder_input = {
             "image_embeddings": embedding.to(self.device),
@@ -131,7 +160,7 @@ class SamDataset(Dataset):
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, gt_cls_logits, sizing, img, imgs
+        return decoder_input, gt_masks, gt_cls_info, sizing, img, imgs
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -212,7 +241,7 @@ class SamDataset(Dataset):
 class SamBoxDataset(SamDataset):
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
         for det in dets:
-            det_box,det_mask,det_cls,det_score,_ = det
+            det_box,det_mask,det_score,det_cls,_ = det
 
             assert det_box is not None, "det_box is None"
 
@@ -220,6 +249,7 @@ class SamBoxDataset(SamDataset):
                 box=det_box,
                 gt_mask=det_mask,
                 multimask=False,
+                gt_cls=det_cls,
             )
 
 class SamPointDataset(SamDataset):
@@ -229,7 +259,7 @@ class SamPointDataset(SamDataset):
         super().__init__(*args, **kwargs)
     def detections_to_prompts(self, img: np.ndarray, dets: Detections) -> List[Prompt]:
         for det in dets:
-            det_box,det_mask,det_cls,det_score,_ = det
+            det_box,det_mask,det_score,det_cls,_ = det
 
             mask_coords = np.nonzero(det_mask) # format: tuple of 1d arrays
             mask_coords = np.stack(mask_coords,axis=1) # format: 2d array
@@ -245,7 +275,8 @@ class SamPointDataset(SamDataset):
                     points=points,
                     labels=label,
                     gt_mask=det_mask,
-                    multimask=self.multimask
+                    multimask=self.multimask,
+                    gt_cls=det_cls,
                 )
 
 from segment_anything.utils.amg import build_point_grid
@@ -269,11 +300,15 @@ class SamEverythingDataset(SamDataset):
 
         label = np.array([True],dtype=bool)
         for raw_sam_point in raw_sam_points:
+
+            closest_dets = get_closest_dets(raw_sam_point, dets, self.top_k)
+
             yield Prompt(
                 points=raw_sam_point,
                 labels=label,
-                gt_masks=get_closest_dets(raw_sam_point, dets, self.top_k).mask,
+                gt_masks=closest_dets.mask,
                 multimask=True,
+                gt_clss=closest_dets.cls,
             )
 
 class RandomPointDataset(SamDataset):
@@ -290,11 +325,14 @@ class RandomPointDataset(SamDataset):
         for i in range(self.points_per_img):
             point = np.random.rand(1,2) * input_size
 
+            closest_dets = get_closest_dets(point, dets, self.top_k)
+
             yield Prompt(
                 points=point,
                 labels=label,
-                gt_masks=get_closest_dets(point, dets, self.top_k).mask,
+                gt_masks=closest_dets.mask,
                 multimask=True,
+                gt_clss=closest_dets.cls,
             )
 
 from random import randint
@@ -406,19 +444,24 @@ class SamInContextDataset(SamDataset):
                 )
 
 class SamComboDataset(SamDataset):
-    def __init__(self, sam_datasets: List[SamDataset]):
+    def __init__(
+            self,
+            sam_datasets: List[SamDataset],
+            *args,
+        ):
 
         # merge datasets
         self.dataset = merge_many_datasets([sam_dataset.dataset for sam_dataset in sam_datasets])
 
+        super().__init__(self.dataset,*args)
+
         self.prompts = []
-
-        assert len(sam_datasets) > 0, "sam_datasets must not be empty"
-        self.predictor = sam_datasets[0].predictor
-        self.device =  sam_datasets[0].device
-
         for dataset in sam_datasets:
             self.prompts.extend(dataset.prompts)
+
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> List[Prompt] | Iterable[Prompt]:
+        return []
+
 
 class SamDummyMaskDataset(SamDataset):
     def detections_to_prompts(self, img: ndarray, dets: Detections) -> Union[List[Prompt], Iterable[Prompt]]:
@@ -501,7 +544,7 @@ def get_combined_mask(img: np.ndarray, detections: Detections) -> np.ndarray:
     return mask
 
 eps = 1e-6
-def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor) -> Tuple[Tensor,Tensor]:
+def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor, gt_cls: Tensor=None, pred_cls: Tensor=None) -> Tuple[Tensor,Tensor, Tensor, int]:
     # get pred-gt mask pairing with highest IoU
 
     assert len(pred_masks) > 0,f"pred_masks is empty"
@@ -518,10 +561,17 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor) -> Tuple[Tensor,Tens
 
     ious = intersections / (unions + eps)
 
+    if gt_cls is not None and pred_cls is not None:
+        reshaped_pred_cls = pred_cls[None,...]
+        reshaped_gt_cls = gt_cls[:,None,...]
+
+        ious[reshaped_pred_cls != reshaped_gt_cls] = -1
+
     max_iou_per_gt, best_pred_idx_per_gt = ious.max(dim=1)
     best_gt_idx = max_iou_per_gt.argmax(dim=0)
     best_pred_idx = best_pred_idx_per_gt[best_gt_idx]
 
+    assert len(ious.shape) == 2,f"ious shape is {ious.shape}"
     best_iou = ious[best_gt_idx,best_pred_idx]
 
     # make sure it's the actual minimum

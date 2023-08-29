@@ -27,6 +27,7 @@ class ClassInfo:
     gt_class: np.ndarray # must have same length as gt_masks
 
     def __post_init__(self):
+        raise DeprecationWarning("ClassInfo is deprecated. Use gt_cls and gt_clss instead.")
         if len(self.gt_class) > 0:
             assert np.max(self.gt_class) < self.num_classes,f"gt_class must be less than num_classes. But gt_class = {self.gt_class} and num_classes = {self.num_classes}"
 
@@ -40,8 +41,10 @@ class Prompt:
     gt_mask: BoolMask = None
     gt_masks: BoolMask = None
 
+    gt_cls: np.ndarray = None
+    gt_clss: np.ndarray = None
+
     context: List[ContextPair] = None
-    cls_info: ClassInfo = None
 
     multimask: bool = False
 
@@ -66,13 +69,9 @@ class Prompt:
 
         assert (self.gt_mask is None) != (self.gt_masks is None),"Prompt must have exactly one of gt_mask or gt_masks"
 
-        if self.cls_info is not None:
-            assert self.cls_info.num_classes > 0,f"num_classes must be positive, not {self.cls_info.num_classes}"
-
-            if self.gt_mask is not None:
-                assert self.cls_info.gt_class.shape == (1,),f"gt_class must have shape (1,), not {self.cls_info.gt_class.shape}"
-            else:
-                assert len(self.cls_info.gt_class) == len(self.gt_masks),f"gt_classes must have the same length as gt_masks, not {len(self.cls_info.gt_class)} and {len(self.gt_masks)}"
+        if self.gt_cls is not None or self.gt_clss is not None:
+            assert (self.gt_mask is None) == (self.gt_cls is None),"Prompt must have exactly one of gt_mask or gt_cls"
+            assert (self.gt_masks is None) == (self.gt_clss is None),"Prompt must have exactly one of gt_masks or gt_clss"
 
 
 from torch import Tensor

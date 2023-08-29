@@ -50,10 +50,11 @@ def render_prompt(img,prompt,sv_dataset):
     img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
 
     gt_masks = prompt.gt_mask[None,...] if prompt.gt_mask is not None else prompt.gt_masks
+    gt_clss = prompt.gt_clss if prompt.gt_clss is not None else prompt.gt_cls[None,...] if prompt.gt_cls is not None else np.zeros(len(gt_masks),dtype=int)
     gt_detection = sv.Detections(
         xyxy=sv.detection.utils.mask_to_xyxy(gt_masks),
         mask=gt_masks,
-        class_id=np.array([0] * len(gt_masks)),
+        class_id=gt_clss,
     )
 
     if prompt.mask is None:
