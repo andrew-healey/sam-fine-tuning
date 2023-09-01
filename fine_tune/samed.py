@@ -161,6 +161,14 @@ class LoRA_Mask_Decoder(nn.Module):
 
         state_dict = torch.load(filename)
         self.load_state_dict(state_dict)
+    
+    def get_parameters(self) -> List[Parameter]:
+        ret = []
+        ret.append(*self.self_attn.parameters())
+        ret.append(*self.cross_attn_ti.parameters())
+        ret.append(*self.cross_attn_it.parameters())
+        ret.append(*self.final_attn.parameters())
+        return ret
 
     def forward(self, *args, **kwargs):
         return self.mask_decoder(*args, **kwargs)
@@ -220,6 +228,8 @@ class _LoRA_Tiny_qkv(nn.Module):
 class LoRA_Tiny_Image_Encoder(nn.Module):
     def __init__(self,image_encoder:TinyViT,r:int):
         super(LoRA_Tiny_Image_Encoder,self).__init__()
+
+        assert isinstance(image_encoder,TinyViT), "Only TinyViT is supported now for LoRA."
 
         assert r > 0
         self.r = r
@@ -296,6 +306,8 @@ class LoRA_Tiny_Image_Encoder(nn.Module):
         state_dict = torch.load(filename)
         self.load_state_dict(state_dict)
 
+    def get_parameters(self) -> List[Parameter]:
+        return self.self_attn.parameters()
 
     def forward(self, *args, **kwargs):
         return self.image_encoder(*args, **kwargs)

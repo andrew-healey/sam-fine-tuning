@@ -136,7 +136,6 @@ class SamDataset(Dataset):
 
             return gt_clss, gt_clss_one_hot
         else:
-            raise NotImplementedError(f"cls_to_tensors not implemented for this dataset. Dataset type: {type(self.dataset)}.")
             return None, None
 
     def __getitem__(self, idx:int):
@@ -160,7 +159,7 @@ class SamDataset(Dataset):
             **prompt_input,
         }
 
-        return decoder_input, gt_masks, gt_cls_info, sizing, img, imgs
+        return decoder_input, gt_masks, gt_cls_info, sizing, img, imgs, prompt.mask_loss
     
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
@@ -265,7 +264,9 @@ class SamPointDataset(SamDataset):
             mask_coords = np.stack(mask_coords,axis=1) # format: 2d array
             mask_coords = mask_coords[np.random.permutation(mask_coords.shape[0])][:,::-1]
 
-            point_coords = mask_coords[:self.points_per_mask]
+            points_per_mask = self.points_per_mask if type(self.points_per_mask) == int else self.points_per_mask[det_cls.item()]
+
+            point_coords = mask_coords[:points_per_mask]
             label = np.array([True],dtype=bool)
             for i in range(len(point_coords)):
                 point_coord = point_coords[i]
@@ -281,7 +282,7 @@ class SamPointDataset(SamDataset):
 
 from segment_anything.utils.amg import build_point_grid
 class SamEverythingDataset(SamDataset):
-    def __init__(self, points_per_side: int, top_k=3, *args, **kwargs):
+    def __init__(self, *args, points_per_side: int , top_k=3, **kwargs):
         self.points_per_side = points_per_side
         self.top_k = top_k
         super().__init__(*args, **kwargs)
@@ -296,7 +297,7 @@ class SamEverythingDataset(SamDataset):
 
         # convert to pixel int coords
         raw_sam_points = raw_sam_points * input_size
-        raw_sam_points = raw_sam_points.round().long()
+        raw_sam_points = raw_sam_points.round().astype(int)
 
         label = np.array([True],dtype=bool)
         for raw_sam_point in raw_sam_points:
@@ -304,11 +305,12 @@ class SamEverythingDataset(SamDataset):
             closest_dets = get_closest_dets(raw_sam_point, dets, self.top_k)
 
             yield Prompt(
-                points=raw_sam_point,
+                points=raw_sam_point[None,:],
                 labels=label,
                 gt_masks=closest_dets.mask,
                 multimask=True,
-                gt_clss=closest_dets.cls,
+                gt_clss=closest_dets.class_id,
+                mask_loss=False,
             )
 
 class RandomPointDataset(SamDataset):
@@ -332,7 +334,8 @@ class RandomPointDataset(SamDataset):
                 labels=label,
                 gt_masks=closest_dets.mask,
                 multimask=True,
-                gt_clss=closest_dets.cls,
+                gt_clss=closest_dets.class_id,
+                mask_loss=False,
             )
 
 from random import randint
@@ -544,6 +547,12 @@ def get_combined_mask(img: np.ndarray, detections: Detections) -> np.ndarray:
     return mask
 
 eps = 1e-6
+
+def iou(a: Tensor, b: Tensor) -> Tensor:
+    intersection = torch.sum(torch.minimum(a,b),dim=(-2,-1))
+    union = torch.sum(torch.maximum(a,b),dim=(-2,-1))
+    return intersection / (union + eps)
+
 def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor, gt_cls: Tensor=None, pred_cls: Tensor=None) -> Tuple[Tensor,Tensor, Tensor, int]:
     # get pred-gt mask pairing with highest IoU
 
@@ -556,10 +565,7 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor, gt_cls: Tensor=None,
     reshaped_preds = pred_masks[None,...]
     reshaped_gts = gt_masks[:,None,...]
 
-    intersections = torch.sum(torch.minimum(reshaped_gts,reshaped_preds),dim=(2,3))
-    unions = torch.sum(torch.maximum(reshaped_gts,reshaped_preds),dim=(2,3))
-
-    ious = intersections / (unions + eps)
+    ious = iou(reshaped_preds, reshaped_gts)
 
     if gt_cls is not None and pred_cls is not None:
         reshaped_pred_cls = pred_cls[None,...]
@@ -577,4 +583,4 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor, gt_cls: Tensor=None,
     # make sure it's the actual minimum
     assert torch.max(ious) == best_iou, "min-finding is wrong"
 
-    return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx
+    return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx, best_gt_idx

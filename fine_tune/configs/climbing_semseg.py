@@ -4,18 +4,16 @@ rf = Roboflow()
 project = rf.workspace("roboflow-4rfmv").project("climbing-y56wy")
 dataset = project.version(6).download("coco-segmentation")
 
-cls_ids = [1,2,3]
+cls_ids = [1]
 
-tasks = ["point","box"]
+tasks = ["sem_seg"]
 
 model_size = "vit_h"
 vit_patch_embed = False
 
 mask_lora = False
-mask_r = 1
 
-train_size = 40 # images
-valid_prompts = 200 # prompts
-points_per_mask = [1,10,10]
+train_size = 5 # images
+valid_size = 10 # images
 
-lr = 8e-4
+use_cls_tokens = False
