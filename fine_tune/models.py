@@ -106,7 +106,13 @@ class WrappedImageEncoder(nn.Module):
         input_image, input_image_torch, input_image_resized = imgs
 
         input_image_final = self.predictor.model.preprocess(input_image_resized)
-        features = self.image_encoder(input_image_final)[0]
+
+        # use no_grad if can_cache_embeddings is true
+        if self.can_cache_embeddings:
+            with torch.no_grad():
+                features = self.image_encoder(input_image_final)[0]
+        else:
+            features = self.image_encoder(input_image_final)[0]
 
         if self.can_cache_embeddings:
             torch.save(features,f"{self.cache_dir}/{hash}.pt")
@@ -239,8 +245,10 @@ class WrappedMaskDecoder(nn.Module):
             def add_losses(losses):
                 loss = torch.tensor(0,dtype=torch.float32,device=low_res_masks.device)
                 for k,v in losses.items():
-                    scale = self.cfg.train.loss_scales.get(k,1)
-                    loss += scale*v
+                    scale = self.cfg.train.loss_scales.get(k,0)
+                    if scale != 0:
+                        # print(f"Adding {k} loss with scale {scale}, value {v}")
+                        loss += scale*v
                 losses["loss"] = loss
 
             use_cls_loss = self.use_cls and gt_cls_info is not None
@@ -249,6 +257,7 @@ class WrappedMaskDecoder(nn.Module):
             losses = {}
 
             if use_normal_loss:
+                print("Also using normal loss")
 
                 (upscaled_masks,binary_masks), max_idx = self.postprocess(low_res_masks,iou_predictions, sizes)
 
@@ -273,17 +282,18 @@ class WrappedMaskDecoder(nn.Module):
                 gt_cls_logits = gt_cls_info["gt_cls_one_hot"]
 
                 (cls_upscaled_masks,cls_binary_masks), max_cls_idx = self.postprocess(cls_low_res_masks,cls_iou_predictions, sizes)
-                cls_pred_iou = F.sigmoid(cls_iou_predictions[0,max_cls_idx])
 
-                cls_gt_binary_mask, cls_binary_mask, cls_max_iou, _, best_det = get_max_iou_masks(gt_masks,cls_binary_masks[None,max_cls_idx,...],gt_cls,max_cls_idx[None,...])
+                cls_gt_binary_mask, cls_binary_mask, cls_max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,cls_binary_masks,gt_cls,torch.arange(self.cfg.data.num_classes,device=gt_masks.device))
+
+                assert best_cls == gt_cls[best_det], f"best_cls is {best_cls} but gt_cls is {gt_cls[best_det]}"
 
                 # simultaneously treat cls iou predictions as probabilities and IoU logits.
                 # I think this is OK because cross-entropy loss is bias-independent.
                 cls_losses["ce"] = F.cross_entropy(cls_iou_predictions[0],gt_cls_logits[best_det])
-                cls_losses["mse"] = F.mse_loss(cls_pred_iou,cls_max_iou)
+                cls_losses["mse"] = F.mse_loss(cls_max_iou, cls_iou_predictions[0,best_cls])
 
                 if prompt.mask_loss:
-                    cls_flat_pred_mask = cls_upscaled_masks[max_cls_idx].view(1,-1)
+                    cls_flat_pred_mask = cls_upscaled_masks[best_cls].view(1,-1)
                     cls_flat_gt_mask = cls_gt_binary_mask.view(1,-1)
 
                     cls_losses["focal"] = calculate_sigmoid_focal_loss(cls_flat_pred_mask,cls_flat_gt_mask,should_sigmoid=True)
@@ -298,9 +308,6 @@ class WrappedMaskDecoder(nn.Module):
 
             return losses
 
-                
-
-    
     def get_trainable_parameters(self):
         if self.ft:
             return self.mask_decoder.parameters()

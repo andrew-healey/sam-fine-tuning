@@ -1,5 +1,5 @@
 from .cfg import Config
-from .models import WrappedMaskDecoder,WrappedSAM
+from .models import WrappedMaskDecoder,WrappedSamModel
 
 import torch
 
@@ -7,7 +7,7 @@ import os
 def export(
         dir:str,
         cfg:Config,
-        sam: WrappedSAM
+        sam: WrappedSamModel
         ):
 
         # write cfg to dir/cfg.yaml
@@ -16,7 +16,7 @@ def export(
 
         if cfg.train.export_full_decoder:
             # export full decoder
-            sam.mask_decoder.to_torchscript(os.path.join(dir,"mask_decoder.pt"))
+            torch.save(sam.decoder.state_dict(),os.path.join(dir,"decoder.pt"))
         
         if cfg.train.export_full:
             torch.save(sam.state_dict(),os.path.join(dir,"sam.pt"))

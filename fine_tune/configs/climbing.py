@@ -16,7 +16,7 @@ cfg = Config(
         points_per_mask=[1,10,10],
     ),
     model=ModelConfig(
-        size="vit_h",
+        size="vit_t",
         encoder=ImageEncoderConfig(
             use_patch_embed=False
         ),
@@ -26,6 +26,7 @@ cfg = Config(
         ),
     ),
     train=TrainConfig(
-        initial_lr=8e-4,
+        # initial_lr=8e-4,
+        cache_embeddings=True,
     )
 )
