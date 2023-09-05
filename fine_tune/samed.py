@@ -306,8 +306,11 @@ class LoRA_Tiny_Image_Encoder(nn.Module):
         state_dict = torch.load(filename)
         self.load_state_dict(state_dict)
 
-    def get_parameters(self) -> List[Parameter]:
+    def get_trainable_parameters(self) -> List[Parameter]:
         return self.self_attn.parameters()
+    
+    def get_trainable_state_dict(self):
+        return {k: v for k, v in self.state_dict().items() if not k.startswith('image_encoder')}
 
     def forward(self, *args, **kwargs):
         return self.image_encoder(*args, **kwargs)

@@ -4,18 +4,28 @@ rf = Roboflow()
 project = rf.workspace("roboflow-4rfmv").project("climbing-y56wy")
 dataset = project.version(6).download("coco-segmentation")
 
-cls_ids = [1,2,3]
+from ..models import ImageEncoderConfig,MaskDecoderConfig
+from ..cfg import Config,DataConfig,ModelConfig,TrainConfig
 
-tasks = ["point","box"]
-
-model_size = "vit_h"
-vit_patch_embed = False
-
-mask_lora = False
-mask_r = 1
-
-train_size = 40 # images
-valid_prompts = 200 # prompts
-points_per_mask = [1,10,10]
-
-lr = 8e-4
+cfg = Config(
+    data=DataConfig(
+        cls_ids=[1,2,3],
+        tasks=["point","box"],
+        train_size=40,
+        valid_prompts=200,
+        points_per_mask=[1,10,10],
+    ),
+    model=ModelConfig(
+        size="vit_h",
+        encoder=ImageEncoderConfig(
+            use_patch_embed=False
+        ),
+        decoder=MaskDecoderConfig(
+            use_lora=False,
+            lora_r=1
+        ),
+    ),
+    train=TrainConfig(
+        initial_lr=8e-4,
+    )
+)

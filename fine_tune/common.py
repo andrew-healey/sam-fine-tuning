@@ -20,15 +20,6 @@ import os
 
 from .prompts import Prompt,ContextPair,ClassInfo
 
-import hashlib
-m = hashlib.sha256()
-
-def hash_img_name(img_name: str) -> str:
-    m.update(img_name.encode('utf-8'))
-    return m.hexdigest()
-
-default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 from torch.nn import functional as F
 
 class SamDataset(Dataset):
@@ -37,34 +28,28 @@ class SamDataset(Dataset):
             self,
             dataset: DetectionDataset,
             predictor: SamPredictor,
-            device: str = default_device,
-            cache_embeddings: bool = False,
-            cache_dir: str = "./cache",
         ):
 
         self.dataset = dataset
         self.predictor = predictor
 
-        self.device = device
-
         images = self.dataset.images
         items = [(img_name,list(self.detections_to_prompts(images[img_name],dets))) for img_name,dets in tqdm(self.dataset.annotations.items())]
         self.prompts = [(img_name,prompt) for img_name,prompts in items for prompt in prompts]
 
-        self.cache_embeddings = cache_embeddings
-        self.cache_dir = cache_dir
 
     def __len__(self):
         return len(self.prompts)
     
     def img_to_embedding(self, img: np.ndarray):
+        raise Exception("img_to_embedding is deprecated.")
 
         if self.cache_embeddings:
             img_name = int(img.sum())
             embedding_path = os.path.join(self.cache_dir,f"{img_name}.pt")
 
             if os.path.exists(embedding_path):
-                info = torch.load(embedding_path, map_location=self.device)
+                info = torch.load(embedding_path, map_location="cpu")
                 return info
 
         predictor = self.predictor
@@ -78,11 +63,11 @@ class SamDataset(Dataset):
         original_size = predictor.original_size
         input_size = predictor.input_size
 
-        unresized_img = torch.as_tensor(img, device=self.device)
+        unresized_img = torch.as_tensor(img)
         unresized_img = unresized_img.permute(2, 0, 1).contiguous()[None, :, :, :]
         unresized_img = (unresized_img - predictor.model.pixel_mean) / predictor.model.pixel_std
 
-        resized_img = predictor.resized_img.to(self.device)
+        resized_img = predictor.resized_img
 
         ret = embedding,(input_size,original_size),(unresized_img, resized_img)
 
@@ -92,6 +77,8 @@ class SamDataset(Dataset):
         return ret
     
     def ctx_to_embeddings(self, ctx: List[ContextPair]):
+        raise Exception("ctx_to_embedding is deprecated.")
+
         if ctx is None:
             return {
                 "context_embeddings": None,
@@ -102,13 +89,13 @@ class SamDataset(Dataset):
             img = context.img
             mask = context.mask
 
-            ctx_mask_input_torch = torch.as_tensor(mask, dtype=torch.float, device=self.device)
+            ctx_mask_input_torch = torch.as_tensor(mask, dtype=torch.float)
             ctx_mask_input_torch = ctx_mask_input_torch[None, None, :, :]
             ctx_mask_input_torch = F.interpolate(ctx_mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
 
             # encode with prompt encoder
             _, ctx_dense_embeddings = self.predictor.model.prompt_encoder(
-                masks=mask[None,None,...].to(self.device),
+                masks=mask[None,None,...],
             )
 
             ctx_embedding,*_ = self.img_to_embedding(img)
@@ -122,7 +109,7 @@ class SamDataset(Dataset):
         assert len(context_torch.shape) == 4,f"context_torch shape is {context_torch.shape}"
 
         return {
-            "context_embeddings": context_torch.to(self.device),
+            "context_embeddings": context_torch,
         }
 
     def cls_to_tensors(self, gt_cls: np.ndarray, gt_clss: np.ndarray):
@@ -130,13 +117,16 @@ class SamDataset(Dataset):
             gt_clss = gt_cls[None,...]
 
         if gt_clss is not None:
-            gt_clss = torch.as_tensor(gt_clss, dtype=torch.float, device=self.device).to(torch.int64)
+            gt_clss = torch.as_tensor(gt_clss, dtype=torch.float).to(torch.int64)
             # one-hot
             gt_clss_one_hot = F.one_hot(gt_clss, num_classes=len(self.dataset.classes)).to(torch.float32)
 
-            return gt_clss, gt_clss_one_hot
+            return {
+                "gt_cls": gt_clss,
+                "gt_cls_one_hot": gt_clss_one_hot,
+            }
         else:
-            return None, None
+            return None
 
     def __getitem__(self, idx:int):
 
@@ -145,22 +135,31 @@ class SamDataset(Dataset):
         img = self.dataset.images[img_name]
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        embedding,sizing,imgs = self.img_to_embedding(img)
+        imgs,sizes = self.predictor.preprocess_image(img)
 
-        ctx_input = self.ctx_to_embeddings(prompt.context)
-
-        prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizing)
+        prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizes)
 
         gt_cls_info = self.cls_to_tensors(prompt.gt_cls,prompt.gt_clss)
 
-        decoder_input = {
-            "image_embeddings": embedding.to(self.device),
-            **ctx_input,
-            **prompt_input,
+        gt_info = {
+            "masks": gt_masks,
+            "cls": gt_cls_info,
         }
 
-        return decoder_input, gt_masks, gt_cls_info, sizing, img, imgs, prompt.mask_loss
+        return prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt
     
+    @staticmethod
+    def to_device(batch, device):
+        prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt = batch
+
+        # move all to device
+        prompt_input = {k:v.to(device) if torch.is_tensor(v) else v for k,v in prompt_input.items()}
+        gt_info = {k:v.to(device) if torch.is_tensor(v) else v for k,v in gt_info.items()}
+        gt_cls_info = {k:v.to(device) for k,v in gt_cls_info.items()} if gt_cls_info is not None else None
+        imgs = tuple(img.to(device) if torch.is_tensor(img) else img for img in imgs)
+
+        return prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt
+
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
         # mimic the predict() function from the SAM predictor
         input_size, original_size = sizing
@@ -178,15 +177,15 @@ class SamDataset(Dataset):
                 point_labels is not None
             ), "point_labels must be supplied if point_coords is supplied."
             point_coords = self.predictor.transform.apply_coords(point_coords, original_size)
-            coords_torch = torch.as_tensor(point_coords, dtype=torch.float, device=self.device)
-            labels_torch = torch.as_tensor(point_labels, dtype=torch.int, device=self.device)
+            coords_torch = torch.as_tensor(point_coords, dtype=torch.float)
+            labels_torch = torch.as_tensor(point_labels, dtype=torch.int)
             coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
         if box is not None:
             box = self.predictor.transform.apply_boxes(box, original_size)
-            box_torch = torch.as_tensor(box, dtype=torch.float, device=self.device)
+            box_torch = torch.as_tensor(box, dtype=torch.float)
             box_torch = box_torch[None, :]
         if mask_input is not None:
-            mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float, device=self.device)
+            mask_input_torch = torch.as_tensor(mask_input, dtype=torch.float)
             mask_input_torch = mask_input_torch[None, None, :, :]
             mask_input_torch = F.interpolate(mask_input_torch, size=(256,256), mode="bilinear", align_corners=False)
         
@@ -203,9 +202,9 @@ class SamDataset(Dataset):
         )
 
         decoder_input = {
-            "image_pe": self.predictor.model.prompt_encoder.get_dense_pe().to(self.device),
-            "sparse_prompt_embeddings": sparse_embeddings.to(self.device),
-            "dense_prompt_embeddings": dense_embeddings.to(self.device),
+            "image_pe": self.predictor.model.prompt_encoder.get_dense_pe(),
+            "sparse_prompt_embeddings": sparse_embeddings,
+            "dense_prompt_embeddings": dense_embeddings,
             "multimask_output": prompt.multimask,
         }
 
@@ -215,7 +214,7 @@ class SamDataset(Dataset):
         if gt_mask is not None:
             gt_masks = gt_mask[None,...]
 
-        gt_masks = torch.as_tensor(gt_masks, dtype=torch.float, device=self.device)
+        gt_masks = torch.as_tensor(gt_masks, dtype=torch.float)
 
         assert len(gt_masks.shape) == 3,f"gt_masks shape is {gt_masks.shape}"
 
@@ -395,14 +394,13 @@ class SamInContextDataset(SamDataset):
             self,
             dataset: DetectionDataset,
             predictor: SamPredictor,
-            device: str = default_device,
 
             context_size: int = 1,
             upsampling_factor: int = 3,
             main_dataset: DetectionDataset = None,
             dummy: bool = False
             ):
-        super().__init__(dataset, predictor, device)
+        super().__init__(dataset, predictor)
 
         assert context_size == 1, "context_size must be 1 for now"
         self.context_size = context_size

@@ -531,8 +531,8 @@ def get_arguments():
 
 should_log = False
 
-import pdb
 if __name__ == "__main__":
+    import pdb
     args = get_arguments()
 
     experiment_name = args.experiment
