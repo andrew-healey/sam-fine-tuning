@@ -8,13 +8,13 @@ cls_ids = [1,2,3]
 
 tasks = ["point","box"]
 
-model_size = "vit_h"
+model_size = "vit_t"
 vit_patch_embed = False
 
 mask_lora = False
 mask_r = 1
 
-train_size = 40 # images
+train_size = None # images
 valid_prompts = 200 # prompts
 points_per_mask = [1,10,10]
 
