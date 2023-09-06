@@ -131,6 +131,7 @@ class SamDataset(Dataset):
     def __getitem__(self, idx:int):
 
         img_name,prompt = self.prompts[idx]
+        print(img_name)
 
         img = self.dataset.images[img_name]
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)

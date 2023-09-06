@@ -32,7 +32,7 @@ def load_datasets(cfg:DataConfig, rf_dataset) -> Tuple[DetectionDataset,Detectio
 
     if cfg.train_size is not None:
         train_dataset = shrink_dataset_to_size(train_dataset,cfg.train_size)
-
+    
     if cfg.cls_ids is not None:
         print("Selecting classes",[train_dataset.classes[i] for i in cfg.cls_ids])
         train_dataset = extract_classes_from_dataset(train_dataset,cfg.cls_ids)

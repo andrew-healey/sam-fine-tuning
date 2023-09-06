@@ -7,7 +7,7 @@ from typing import List,Optional,Union,Dict
 
 @dataclass
 class DataConfig(YAMLWizard):
-    create_valid:bool = True
+    create_valid:bool = False
     cls_ids:Optional[List[int]] = None # any
     train_size:Optional[int] = None # images
 
