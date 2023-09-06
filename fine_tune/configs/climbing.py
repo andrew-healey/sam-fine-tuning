@@ -11,7 +11,7 @@ cfg = Config(
     data=DataConfig(
         cls_ids=[1,2,3],
         tasks=["point","box"],
-        train_size=40,
+        train_size=None,
         valid_prompts=200,
         points_per_mask=[1,10,10],
     ),
@@ -26,7 +26,8 @@ cfg = Config(
         ),
     ),
     train=TrainConfig(
-        # initial_lr=8e-4,
+        initial_lr=8e-4,
         cache_embeddings=True,
+        run_grad=False
     )
 )
