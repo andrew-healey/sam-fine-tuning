@@ -1,3 +1,6 @@
 [submodule "segment-anything"]
 	path = segment-anything
 	url = https://github.com/andrew-healey/segment-anything.git
+[submodule "roboflow-train"]
+	path = roboflow-train
+	url = https://github.com/roboflow/roboflow-train
