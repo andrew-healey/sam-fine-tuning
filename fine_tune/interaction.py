@@ -70,6 +70,9 @@ def get_refinement_prompt(pred_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt)
     return ret
 
 from .common import SamDataset,get_max_iou_masks
+
+# TODO integrate this with the confusion matrix finder + general evaluation loop - not important now, but good for efficiency later
+# TODO more urgent: include a switch to test with cls or without cls--i.e. ask "has custom SAM improved performance?"
 def get_clicks_per_instance(sam,valid_dataset:SamDataset,threshold:float)->int:
     """
     Note: the batch has only one instance.

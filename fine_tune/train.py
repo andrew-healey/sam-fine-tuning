@@ -22,27 +22,18 @@ Setup:
 
 """
 Todos:
-- Clicks-per-instance benchmarking
-- Confusion matrix benchmarking
+- Clicks-per-instance benchmarking - DONE!
+- Confusion matrix benchmarking - DONE!
+- Unified benchmarking
 - Automatically pick best pred-IoU threshold for SAM vs. custom SAM
-- Attn masks + duplicate points: LHS can't attend to RHS, vice versa
+- Attn masks + duplicate points: LHS can't attend to RHS, vice versa - or maybe pad + batch
 - Simple Flask server for requesting+downloading a trained model
 - ONNX export as a function - DONE!
 - Train loop as a function - no custom configs yet, just set defaults
 - Model-ify the configurable encoder & decoder - DONE!
-- Switch all prompt encoding stuff out of the dataset and into the model
 """
 
-#
-# Metrics
-#
 
-def confusion_matrix(predictor: nn.Module, valid_dataset: Dataset) -> torch.Tensor:
-    """
-    Returns a confusion matrix of shape (num_classes, num_classes).
-    The rows are the ground truth classes, the columns are the predicted classes.
-    """
+# TODO: train loop
 
-    running_matrix = torch.zeros((predictor.mask_decoder.num_classes, predictor.num_classes), dtype=torch.int32)
-
-    for 
+def train(
