@@ -283,14 +283,16 @@ class WrappedMaskDecoder(nn.Module):
 
                 (cls_upscaled_masks,cls_binary_masks), max_cls_idx = self.postprocess(cls_low_res_masks,cls_iou_predictions, sizes)
 
-                cls_gt_binary_mask, cls_binary_mask, cls_max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,cls_binary_masks,gt_cls,torch.arange(self.cfg.data.num_classes,device=gt_masks.device))
+                inputs = [gt_masks,cls_binary_masks,gt_cls,torch.arange(self.cfg.data.num_classes,device=gt_masks.device)]
+                cls_gt_binary_mask, cls_binary_mask, cls_max_iou, best_cls, best_det = get_max_iou_masks(*inputs)
+                cls_pred_iou = F.sigmoid(cls_iou_predictions[0,best_cls])
 
                 assert best_cls == gt_cls[best_det], f"best_cls is {best_cls} but gt_cls is {gt_cls[best_det]}"
 
                 # simultaneously treat cls iou predictions as probabilities and IoU logits.
                 # I think this is OK because cross-entropy loss is bias-independent.
                 cls_losses["ce"] = F.cross_entropy(cls_iou_predictions[0],gt_cls_logits[best_det])
-                cls_losses["mse"] = F.mse_loss(cls_max_iou, cls_iou_predictions[0,best_cls])
+                cls_losses["mse"] = F.mse_loss(cls_max_iou, cls_pred_iou)
 
                 if prompt.mask_loss:
                     cls_flat_pred_mask = cls_upscaled_masks[best_cls].view(1,-1)
