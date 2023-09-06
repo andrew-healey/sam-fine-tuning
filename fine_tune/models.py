@@ -218,6 +218,17 @@ class WrappedMaskDecoder(nn.Module):
             num_classes = cfg.data.num_classes
             assert num_classes is not None, "Must set num_classes before initializing the mask decoder"
             self.mask_decoder.add_cls_token(num_classes)
+
+            if self.cfg.train.warm_start:
+                # warm-start the cls tokens to match the single-mask token
+                self.mask_decoder.cls_mask_tokens.weight.data = self.mask_decoder.mask_tokens.weight.data[0].unsqueeze(0).repeat(num_classes,1)
+                # ditto for hypernetwork MLPs
+                main_hypernetwork_mlp = self.mask_decoder.output_hypernetworks_mlps[0]
+                for cls_hypernetwork_mlp in self.mask_decoder.cls_hypernetworks_mlps:
+                    # deep copy state dict of main hypernetwork MLP
+                    cls_hypernetwork_mlp.load_state_dict(main_hypernetwork_mlp.state_dict().copy())
+                print("warm started")
+
     
     def forward(self, *args, **kwargs):
         return self.mask_decoder(*args, **kwargs)
