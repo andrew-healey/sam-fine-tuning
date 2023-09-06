@@ -19,3 +19,5 @@ valid_prompts = 200 # prompts
 points_per_mask = [1,10,10]
 
 lr = 8e-4
+
+create_valid = False
