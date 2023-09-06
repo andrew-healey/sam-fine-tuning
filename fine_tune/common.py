@@ -131,7 +131,7 @@ class SamDataset(Dataset):
     def __getitem__(self, idx:int):
 
         img_name,prompt = self.prompts[idx]
-        print(img_name)
+        # print(img_name)
 
         img = self.dataset.images[img_name]
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -162,8 +162,9 @@ class SamDataset(Dataset):
         return prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt
 
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
+
         # mimic the predict() function from the SAM predictor
-        input_size, original_size = sizing
+        original_size,input_size = sizing
 
         # Transform input prompts
         point_coords = prompt.points

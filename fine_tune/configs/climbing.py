@@ -11,12 +11,12 @@ cfg = Config(
     data=DataConfig(
         cls_ids=[1,2,3],
         tasks=["point","box"],
-        train_size=None,
+        train_size=40,
         valid_prompts=200,
         points_per_mask=[1,10,10],
     ),
     model=ModelConfig(
-        size="vit_t",
+        size="vit_h",
         encoder=ImageEncoderConfig(
             use_patch_embed=False
         ),
@@ -26,8 +26,8 @@ cfg = Config(
         ),
     ),
     train=TrainConfig(
-        initial_lr=8e-4,
+        initial_lr=2e-4,
         cache_embeddings=True,
-        run_grad=False
+        run_grad=True
     )
 )

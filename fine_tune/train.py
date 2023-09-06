@@ -27,9 +27,10 @@ Todos:
 - Automatically pick best pred-IoU threshold for SAM vs. custom SAM
 - Attn masks + duplicate points: LHS can't attend to RHS, vice versa
 - Simple Flask server for requesting+downloading a trained model
-- ONNX export as a function
+- ONNX export as a function - DONE!
 - Train loop as a function - no custom configs yet, just set defaults
-- Model-ify the configurable encoder & decoder
+- Model-ify the configurable encoder & decoder - DONE!
+- Switch all prompt encoding stuff out of the dataset and into the model
 """
 
 #
