@@ -1,3 +1,11 @@
+import matplotlib
+
+import os
+if os.environ.get("HEADLESS") == "true":
+    matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+
 import supervision as sv
 from supervision import Detections,MaskAnnotator
 from supervision.detection.utils import mask_to_xyxy
@@ -20,7 +28,6 @@ def clip_together_imgs(img1,img2):
     return Image.fromarray(np.hstack((img1,img2))).convert('RGB')
 
 from typing import List
-import matplotlib.pyplot as plt
 def show_confusion_matrix(gt_classes: List[int], pred_classes: List[int], class_names: List[str]):
     num_classes = len(class_names)
     conf_matrix = np.zeros((num_classes,num_classes))
@@ -41,6 +48,8 @@ def show_confusion_matrix(gt_classes: List[int], pred_classes: List[int], class_
     plt.ylabel("Ground Truth Class")
 
     plt.show()
+
+    return conf_matrix
 
 box_annotator = sv.BoxAnnotator()
 
@@ -99,3 +108,22 @@ def render_prompt(img,prompt,sv_dataset):
     shown_img = annotator.annotate(scene=shown_img,detections=point_detection)
 
     return Image.fromarray(shown_img).convert("RGB")
+
+from PIL import Image
+def plt_to_pil():
+    # Get the figure and its axes
+    fig = plt.gcf()
+    axes = plt.gca()
+
+    # Draw the content
+    fig.canvas.draw()
+
+    # Get the RGB values
+    rgb = fig.canvas.tostring_rgb()
+
+    # Get the width and height of the figure
+    width, height = fig.canvas.get_width_height()
+
+    # Convert the RGB values to a PIL Image
+    img = Image.frombytes('RGB', (width, height), rgb)
+    return img

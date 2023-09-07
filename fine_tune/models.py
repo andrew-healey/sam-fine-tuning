@@ -366,8 +366,7 @@ class WrappedSamModel(nn.Module):
             "encoder": self.encoder.get_trainable_state_dict(),
             "decoder": self.decoder.get_trainable_state_dict()
         })
-
-
+    
 def flatten_state_dict(dict:dict)->dict:
     ret = {}
     for k,v in dict.items():

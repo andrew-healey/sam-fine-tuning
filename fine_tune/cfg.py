@@ -9,13 +9,15 @@ from typing import List,Optional,Union,Dict
 class DataConfig(YAMLWizard):
     create_valid:bool = False
     cls_ids:Optional[List[int]] = None # any
+
     train_size:Optional[int] = None # images
+    train_prompts:Optional[int] = None
 
     # number of classes in the dataset - must be set before loading your models.
     num_classes: int = None
 
-    valid_size:int = 20 # images
-    valid_prompts:int = 500
+    valid_size:Optional[int] = None # images
+    valid_prompts:Optional[int] = None
 
     use_masks:bool = True
 
@@ -52,7 +54,8 @@ class TrainConfig(YAMLWizard):
     weight_decay:bool = 0.1
 
     warmup_steps:int = 500
-    total_steps:int = 150_000
+    max_steps:int = 50_000
+    max_epochs:int = 100
 
     batch_size:int = 5 # currently, I use gradient accumulation for this--they do 256 images per batch.
 

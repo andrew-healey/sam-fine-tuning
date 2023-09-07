@@ -1,4 +1,4 @@
-from .cfg import DataConfig
+from .cfg import Config,DataConfig
 from typing import Tuple
 
 from supervision import DetectionDataset
@@ -8,6 +8,9 @@ import os
 from .datasets import extract_classes_from_dataset,shrink_dataset_to_size
 from .common import grow_dataset_masks
 
+from roboflow import Project
+from typing import Union,Optional
+
 
 def check_for_overlap(train_dataset:DetectionDataset,valid_dataset:DetectionDataset):
     valid_names = set(k.split(".rf")[0] for k in valid_dataset.images.keys())
@@ -16,13 +19,15 @@ def check_for_overlap(train_dataset:DetectionDataset,valid_dataset:DetectionData
     # Check that there's no training/valid pollution
     assert len(valid_names.intersection(train_names)) == 0,"There is overlap between the training and validation sets."
 
-def load_datasets(cfg:DataConfig, rf_dataset) -> Tuple[DetectionDataset,DetectionDataset]:
+def load_datasets(cfg:DataConfig, rf_dataset:Union[Project,str]) -> Tuple[DetectionDataset,DetectionDataset]:
 
-    cfg.dataset_name = os.path.basename(rf_dataset.location)
+    dataset_location = rf_dataset.location if isinstance(rf_dataset,Project) else rf_dataset
+
+    cfg.dataset_name = os.path.basename(dataset_location)
 
     train_dataset = sv.DetectionDataset.from_coco(
-        images_directory_path=f"{rf_dataset.location}/train",
-        annotations_path=f"{rf_dataset.location}/train/_annotations.coco.json",
+        images_directory_path=f"{dataset_location}/train",
+        annotations_path=f"{dataset_location}/train/_annotations.coco.json",
         force_masks=cfg.use_masks
     )
 
@@ -39,8 +44,8 @@ def load_datasets(cfg:DataConfig, rf_dataset) -> Tuple[DetectionDataset,Detectio
 
     if not cfg.create_valid:
         valid_dataset = sv.DetectionDataset.from_coco(
-            images_directory_path=f"{rf_dataset.location}/valid",
-            annotations_path=f"{rf_dataset.location}/valid/_annotations.coco.json",
+            images_directory_path=f"{dataset_location}/valid",
+            annotations_path=f"{dataset_location}/valid/_annotations.coco.json",
             force_masks=cfg.use_masks
         )
 
@@ -60,3 +65,46 @@ def load_datasets(cfg:DataConfig, rf_dataset) -> Tuple[DetectionDataset,Detectio
     cfg.num_classes = len(train_dataset.classes)
 
     return train_dataset,valid_dataset
+
+from .common import SamDataset,SamComboDataset,RandomPointDataset,SamSemSegDataset,SamBoxDataset,SamPointDataset,SamDummyMaskDataset,SamEverythingDataset
+sam_dataset_registry = {
+    "sem_seg": lambda ds,cfg,args: SamSemSegDataset(ds,*args),
+    "box": lambda ds,cfg,args: SamBoxDataset(ds,*args),
+    "point": lambda ds,cfg,args: SamPointDataset(ds,*args,points_per_mask=cfg.data.points_per_mask),
+    "dummy": lambda ds,cfg,args: SamDummyMaskDataset(ds,*args),
+    "everything": lambda ds,cfg,args: SamEverythingDataset(ds,*args,points_per_side=cfg.data.points_per_side,top_k=None),
+    "random": lambda ds,cfg,args: RandomPointDataset(ds,*args,points_per_img=cfg.data.points_per_img),
+}
+
+from segment_anything import SamPredictor
+from torch.utils.data import random_split
+
+def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Project,max_prompts:Optional[int]=None)->sv.DetectionDataset:
+    args = [predictor]
+
+    datasets = []
+    for task in cfg.data.tasks:
+        datasets.append(sam_dataset_registry[task](ds))
+    ret = SamComboDataset(datasets,*args)
+
+    num_prompts = len(ret)
+    if max_prompts is not None and num_prompts > max_prompts:
+        # split off prompts
+        ret,_ = random_split(ret,[max_prompts,num_prompts-max_prompts])
+    return ret
+
+from src.utils.cloud_utils import firestore,gac_json
+def download_raw_dataset(project:str):
+    raise NotImplementedError("Haven't gotten Firestore stuff yet.")
+    db = firestore.Client.from_service_account_json(gac_json)
+
+    # js equivalent:
+    # await db.collection(“sources”).where(“project”, “array-contains”, PROJECT_ID).limit(50).get()
+
+    sources = db.collection("sources").where("project","array_contains",project).get()
+
+    print(sources)
+
+    raise 1
+
+download_raw_dataset("climbing-z0pqv")

@@ -12,6 +12,7 @@ cfg = Config(
         cls_ids=[1,2,3],
         tasks=["point","box"],
         train_size=40,
+        train_prompts=10_000,
         valid_prompts=200,
         points_per_mask=[1,10,10],
     ),
