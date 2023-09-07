@@ -12,7 +12,7 @@ cfg = Config(
         cls_ids=[1,2,3],
         tasks=["point","box"],
         train_size=40,
-        train_prompts=10_000,
+        train_prompts=1_000,
         valid_prompts=200,
         points_per_mask=[1,10,10],
     ),
@@ -22,13 +22,14 @@ cfg = Config(
             use_patch_embed=False
         ),
         decoder=MaskDecoderConfig(
-            use_lora=False,
-            lora_r=1
+            use_lora=True,
+            lora_r=1,
+            use_cls=False,
         ),
     ),
     train=TrainConfig(
         initial_lr=2e-4,
         cache_embeddings=True,
-        run_grad=True
+        run_grad=False
     )
 )

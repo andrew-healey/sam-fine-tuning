@@ -8,7 +8,7 @@ import os
 from .datasets import extract_classes_from_dataset,shrink_dataset_to_size
 from .common import grow_dataset_masks
 
-from roboflow import Project
+from roboflow.core.dataset import Dataset
 from typing import Union,Optional
 
 
@@ -19,9 +19,10 @@ def check_for_overlap(train_dataset:DetectionDataset,valid_dataset:DetectionData
     # Check that there's no training/valid pollution
     assert len(valid_names.intersection(train_names)) == 0,"There is overlap between the training and validation sets."
 
-def load_datasets(cfg:DataConfig, rf_dataset:Union[Project,str]) -> Tuple[DetectionDataset,DetectionDataset]:
+def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[DetectionDataset,DetectionDataset]:
 
-    dataset_location = rf_dataset.location if isinstance(rf_dataset,Project) else rf_dataset
+    dataset_location = rf_dataset.location if isinstance(rf_dataset,Dataset) else rf_dataset
+    assert type(dataset_location) == str,f"dataset_location: {dataset_location}, type: {type(dataset_location)}"
 
     cfg.dataset_name = os.path.basename(dataset_location)
 
@@ -79,12 +80,12 @@ sam_dataset_registry = {
 from segment_anything import SamPredictor
 from torch.utils.data import random_split
 
-def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Project,max_prompts:Optional[int]=None)->sv.DetectionDataset:
+def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Dataset,max_prompts:Optional[int]=None)->sv.DetectionDataset:
     args = [predictor]
 
     datasets = []
     for task in cfg.data.tasks:
-        datasets.append(sam_dataset_registry[task](ds))
+        datasets.append(sam_dataset_registry[task](ds,cfg,args))
     ret = SamComboDataset(datasets,*args)
 
     num_prompts = len(ret)
@@ -93,18 +94,126 @@ def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Project,max_promp
         ret,_ = random_split(ret,[max_prompts,num_prompts-max_prompts])
     return ret
 
-from src.utils.cloud_utils import firestore,gac_json
-def download_raw_dataset(project:str):
-    raise NotImplementedError("Haven't gotten Firestore stuff yet.")
+from src.utils.cloud_utils import firestore,gac_json,gcp_download
+import os
+import json
+
+import requests
+from PIL import Image
+
+# for async download
+import asyncio
+
+async def download_img(img_id,owner_id,save_path):
+    # url = "https://storage.googleapis.com/roboflow-platform-sources/{image['owner']}/{image['id']}/thumb.jpg"
+    url = f"https://storage.googleapis.com/roboflow-staging-sources/{owner_id}/{img_id}/original.jpg"
+
+    # retry 5 times
+    for i in range(5):
+        try:
+            r = requests.get(url)
+            break
+        except:
+            print(f"Failed to download {url}, retrying...")
+    
+    with open(save_path,"wb") as f:
+        f.write(r.content)
+
+    # return height,width
+    return Image.open(save_path).size
+    
+
+import datetime
+
+def download_raw_dataset(dataset_id:str,save_dir="dataset"):
     db = firestore.Client.from_service_account_json(gac_json)
 
-    # js equivalent:
-    # await db.collection(“sources”).where(“project”, “array-contains”, PROJECT_ID).limit(50).get()
 
-    sources = db.collection("sources").where("project","array_contains",project).get()
+    # delete the directory if it exists
+    if os.path.exists(save_dir):
+        os.system(f"rm -rf {save_dir}")
+    os.mkdir(save_dir)
 
-    print(sources)
+    dataset = db.collection("datasets").document(dataset_id).get().to_dict()
+    annot_name = dataset["annotation"]
 
-    raise 1
+    sorted_classes = sorted(dataset["classes"].keys())
+    inverse_idx = {k:i for i,k in enumerate(sorted_classes)}
 
-download_raw_dataset("climbing-z0pqv")
+    # mkdir train, valid, and test
+
+    cocos = { }
+    for split in ["train","valid","test"]:
+        os.mkdir(f"{save_dir}/{split}")
+
+        cocos[split] = {
+            "classes":[
+                {
+                    "id": i,
+                    "name": name,
+                    "supercategory": "none"
+                } for i,name in enumerate(sorted_classes)
+            ],
+            "images": [],
+            "annotations": [],
+        }
+
+    sources = db.collection("sources").where("projects","array_contains",dataset_id).get()
+
+    # sort by update date - "updated" is a firestore timestamp
+    sources = sorted(sources,key=lambda x:x.to_dict()["updated"])
+
+    for source in sources:
+        annot = source.to_dict()
+        split = annot.get(f"split.{dataset_id}",None)
+        if not split:
+            continue
+
+        i = len(cocos[split]["images"])
+        img_id = source.id
+        owner_id = annot["owner"]
+        name = annot["name"]
+
+        # download image
+        img_path = f"{save_dir}/{split}/{name}"
+
+        # run in the background:
+        asyncio.run(download_img(img_id,owner_id,img_path))
+
+        updated_iso = annot["updated"].isoformat()
+
+        images_entry = {
+            "id":i,
+            "file_name":name,
+            "license":None,
+            "height":annot["height"],
+            "width":annot["width"],
+            "date_captured":updated_iso,
+        }
+
+        cocos[split]["images"].append(images_entry)
+
+        # add annotations
+        converted = json.loads(annot["annotations"][annot_name]["converted"])
+        key = converted["key"]
+        boxes = converted["boxes"]
+
+        for box in boxes:
+            coco_annot = {}
+            coco_annot["bbox"] = [box["x"],box["y"],box["width"],box["height"]]
+            coco_annot["bbox"] = [float(x) for x in coco_annot["bbox"]]
+
+            if "points" in box:
+                # flatten 2d array to 1d
+                coco_annot["segmentation"] = [x for y in box["points"] for x in y]
+            
+            coco_annot["iscrowd"] = 0
+            coco_annot["image_id"] = i
+            coco_annot["category_id"] = inverse_idx[box["label"]]
+            coco_annot["id"] = len(cocos[split]["annotations"])
+
+            cocos[split]["annotations"].append(coco_annot)
+            
+    for split in ["train","valid","test"]:
+        with open(f"{save_dir}/{split}/_annotations.coco.json","w") as f:
+            json.dump(cocos[split],f)

@@ -267,12 +267,13 @@ class WrappedMaskDecoder(nn.Module):
 
             losses = {}
 
+            gt_masks = gt_info["masks"]
+
             if use_normal_loss:
-                print("Also using normal loss")
 
                 (upscaled_masks,binary_masks), max_idx = self.postprocess(low_res_masks,iou_predictions, sizes)
 
-                gt_binary_mask, _, max_iou, *_ = get_max_iou_masks(gt_info["gt_masks"],binary_masks[None,max_idx,...])
+                gt_binary_mask, _, max_iou, *_ = get_max_iou_masks(gt_masks,binary_masks[None,max_idx,...])
 
                 # mse loss
                 losses["mse"] = F.mse_loss(max_iou, iou_predictions[0,max_idx])
@@ -288,7 +289,6 @@ class WrappedMaskDecoder(nn.Module):
             if use_cls_loss:
                 cls_losses = {}
 
-                gt_masks = gt_info["masks"]
                 gt_cls = gt_cls_info["gt_cls"]
                 gt_cls_logits = gt_cls_info["gt_cls_one_hot"]
 

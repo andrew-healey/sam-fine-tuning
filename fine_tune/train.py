@@ -47,7 +47,7 @@ from src.trainer import Trainer
 from .viz import show_confusion_matrix,plt_to_pil,clip_together_imgs,mask_to_img # configure headless matplotlib
 from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
 from .cfg import Config,DataConfig,ModelConfig,TrainConfig
-from .load_datasets import load_datasets,prepare_torch_dataset
+from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
 from .datasets import get_class_counts
 from .common import SamDataset,get_max_iou_masks
 from .optimizer import get_optimizer
@@ -78,6 +78,10 @@ class CustomSAMTrainer(Trainer):
         self.sam = WrappedSamModel(self.cfg).to(device)
     
     def load_datasets(self):
+
+        # download from roboflow
+        download_raw_dataset(self.dataset_id,self.dataset_dir)
+
         self.sv_train_dataset,self.sv_valid_dataset = load_datasets(self.cfg,self.dataset_dir)
 
         self.train_dataset = prepare_torch_dataset(self.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
@@ -147,7 +151,7 @@ class CustomSAMTrainer(Trainer):
         curr_epoch = 0
 
         # iter through dataset in random order
-        while curr_iters < cfg.train.total_steps:
+        while curr_iters < cfg.train.max_steps:
             self.evaluate()
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 

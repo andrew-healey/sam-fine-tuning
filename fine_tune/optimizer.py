@@ -23,7 +23,7 @@ def get_optimizer(cfg: Config, sam: WrappedSamModel):
 
     # Step-wise learning rate decay schedule
     def lr_decay_lambda(current_step):
-        int_lr_decay_steps = [int(step * train.total_steps) for step in train.lr_decay_steps]
+        int_lr_decay_steps = [int(step * train.max_steps) for step in train.lr_decay_steps]
         if current_step in int_lr_decay_steps:
             return train.lr_decay_factor
         return 1.0

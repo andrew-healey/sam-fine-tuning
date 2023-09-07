@@ -164,10 +164,11 @@ class LoRA_Mask_Decoder(nn.Module):
     
     def get_parameters(self) -> List[Parameter]:
         ret = []
-        ret.append(*self.self_attn.parameters())
-        ret.append(*self.cross_attn_ti.parameters())
-        ret.append(*self.cross_attn_it.parameters())
-        ret.append(*self.final_attn.parameters())
+        ret.extend(self.self_attn.parameters())
+        ret.extend(self.cross_attn_ti.parameters())
+        ret.extend(self.cross_attn_it.parameters())
+        ret.extend(self.final_attn.parameters())
+
         return ret
 
     def forward(self, *args, **kwargs):
