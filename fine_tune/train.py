@@ -165,9 +165,7 @@ class CustomSAMTrainer(Trainer):
                 # WandB
                 #
                 
-                loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
-                loss = loss_dict["loss"]
-
+                loss,loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
 
                 loss_dict = {k:v.item() for k,v in loss_dict.items()}
                 wandb.log(loss_dict)
@@ -176,7 +174,7 @@ class CustomSAMTrainer(Trainer):
                 # Logging
                 #
 
-                recent_losses += [loss.item()]
+                recent_losses += [loss_dict["cls_loss"].item()]
                 recent_losses = recent_losses[-cfg.train.log_period:]
 
                 if curr_iters % cfg.train.eval_period == 0:
@@ -208,7 +206,10 @@ class CustomSAMTrainer(Trainer):
         pred_classes = []
         gt_classes = []
 
-        running_loss = 0.0
+        running_losses = {}
+        running_counts = {}
+
+        running_loss = 0
         running_count = 0
 
         viz_idx = randrange(len(self.valid_dataset))
@@ -228,17 +229,22 @@ class CustomSAMTrainer(Trainer):
 
                 low_res_masks, iou_predictions, cls_low_res_masks,cls_iou_predictions = pred = self.sam.decoder(**prompt_input,**encoder_output)
 
-                losses = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
-                loss = losses["loss"]
+                _,losses = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
 
-                # get pred gt class
-                (_,binary_masks), max_idx = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
+                for k,v in losses.items():
+                    running_losses[k] = running_losses.get(k,0) + v.item()
+                    running_counts[k] = running_counts.get(k,0) + 1
+                
+                running_loss += losses["cls_loss"].item()
+                running_count += 1
+
+                # get pred gt mask
+                (_,binary_masks), max_idx = self.sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
                 gt_binary_mask,*_ = get_max_iou_masks(gt_info["masks"],binary_masks[None,max_idx,...])
 
                 if use_cls:
-                    # get pred gt class
+                    # get pred gt cls and mask
                     (_,cls_binary_masks), pred_cls = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
-
                     cls_gt_binary_mask,_,_,best_cls,_ = get_max_iou_masks(gt_info["masks"],cls_binary_masks,gt_cls_info["gt_cls"],torch.arange(cfg.data.num_classes).to(device))
 
                     if viz_idx == running_count:
@@ -250,21 +256,15 @@ class CustomSAMTrainer(Trainer):
                     pred_classes.append(pred_cls)
                     gt_classes.append(best_cls)
 
-                running_loss += loss.item()
-                running_count += 1
+        valid_mask_loss = running_losses["mask_loss"]/running_counts["mask_loss"]
+        valid_cls_mask_loss = running_losses["cls_mask_loss"]/running_counts["cls_mask_loss"]
         valid_loss = running_loss/running_count
 
         assert viz_gt_mask is not None,"viz_gt_mask is None"
         assert viz_cls_mask is not None,"viz_cls_mask is None"
         assert viz_mask is not None,"viz_mask is None"
 
-        wandb.log({
-            "valid_loss": valid_loss,
-            "normal_viz": wandb.Image(clip_together_imgs(mask_to_img(viz_mask,viz_img),mask_to_img(viz_gt_mask,viz_img))),
-            "cls_viz": wandb.Image(clip_together_imgs(mask_to_img(viz_cls_mask,viz_img),mask_to_img(viz_gt_mask,viz_img))),
-        })
-
-        print(f"VALID - Loss: {valid_loss:.4f}")
+        print(f"VALID - Loss: {valid_loss}, Mask Loss: {valid_mask_loss}, Cls Mask Loss: {valid_cls_mask_loss}")
 
         assert len(gt_classes) > 0,"No gt classes found"
 
@@ -274,7 +274,16 @@ class CustomSAMTrainer(Trainer):
         avg_recall = np.mean(percent_recall)
 
         confusion_matrix = plt_to_pil()
+
         wandb.log({
+            "valid_loss": valid_loss,
+
+            "valid_normal_mask_loss": valid_mask_loss,
+            "valid_cls_mask_loss": valid_cls_mask_loss,
+
+            "normal_viz": wandb.Image(clip_together_imgs(mask_to_img(viz_mask,viz_img),mask_to_img(viz_gt_mask,viz_img))),
+            "cls_viz": wandb.Image(clip_together_imgs(mask_to_img(viz_cls_mask,viz_img),mask_to_img(viz_gt_mask,viz_img))),
+
             "confusion_matrix": wandb.Image(confusion_matrix),
             "avg_recall": avg_recall.item(),
         })

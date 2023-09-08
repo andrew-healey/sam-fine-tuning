@@ -242,9 +242,6 @@ class WrappedMaskDecoder(nn.Module):
 
         max_idx = torch.argmax(iou_predictions)
 
-        pred_mask = upscaled_masks[max_idx]
-        binary_mask = binary_masks[max_idx]
-
         return \
             (upscaled_masks,binary_masks), max_idx
     
@@ -269,7 +266,8 @@ class WrappedMaskDecoder(nn.Module):
 
             gt_masks = gt_info["masks"]
 
-            if use_normal_loss:
+            # normal loss
+            if True:
 
                 (upscaled_masks,binary_masks), max_idx = self.postprocess(low_res_masks,iou_predictions, sizes)
 
@@ -285,7 +283,11 @@ class WrappedMaskDecoder(nn.Module):
 
                     losses["focal"] = calculate_sigmoid_focal_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
                     losses["dice"] = calculate_dice_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
+                    losses["mask"] = losses["focal"] + losses["dice"]
+
+                add_losses(losses)
             
+            # cls loss
             if use_cls_loss:
                 cls_losses = {}
 
@@ -311,15 +313,21 @@ class WrappedMaskDecoder(nn.Module):
 
                     cls_losses["focal"] = calculate_sigmoid_focal_loss(cls_flat_pred_mask,cls_flat_gt_mask,should_sigmoid=True)
                     cls_losses["dice"] = calculate_dice_loss(cls_flat_pred_mask,cls_flat_gt_mask,should_sigmoid=True)
+
+                    cls_losses["mask"] = cls_losses["focal"] + cls_losses["dice"]
                 
                 add_losses(cls_losses)
 
                 for k,v in cls_losses.items():
                     losses[f"cls_{k}"] = v
-            
-            add_losses(losses)
+                
+            loss = torch.tensor(0,dtype=torch.float32,device=low_res_masks.device)
+            if use_normal_loss:
+                loss += losses["loss"]
+            if use_cls_loss:
+                loss += losses["cls_loss"]
 
-            return losses
+            return loss,losses
 
     def get_trainable_parameters(self):
         if self.ft:
