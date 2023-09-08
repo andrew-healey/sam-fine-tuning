@@ -384,7 +384,7 @@ class SamNextMaskDataset(SamDataset):
                 yield secondary_prompt
 
 class SamSemSegDataset(SamDataset):
-    def detections_to_prompts(self, img: ndarray, dets: Detections) -> List[Prompt] | Iterable[Prompt]:
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> Union[List[Prompt],Iterable[Prompt]]:
         gt_mask = get_combined_mask(img, dets)
         yield Prompt(
             gt_mask=gt_mask,
@@ -463,7 +463,7 @@ class SamComboDataset(SamDataset):
         for dataset in sam_datasets:
             self.prompts.extend(dataset.prompts)
 
-    def detections_to_prompts(self, img: ndarray, dets: Detections) -> List[Prompt] | Iterable[Prompt]:
+    def detections_to_prompts(self, img: ndarray, dets: Detections) -> Union[List[Prompt], Iterable[Prompt]]:
         return []
 
 

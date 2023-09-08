@@ -141,7 +141,7 @@ def get_class_counts(dataset:DetectionDataset)->List[int]:
     # count number of instances per class
     cls_counts = np.zeros(len(dataset.classes))
     for dets in dataset.annotations.values():
-        class_ids,counts = np.unique(dets["class_id"],return_counts=True)
+        class_ids,counts = np.unique(dets.class_id,return_counts=True)
         for cls,count in zip(class_ids,counts):
             cls_counts[cls] += count
     return cls_counts.tolist()

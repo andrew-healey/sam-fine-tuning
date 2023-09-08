@@ -147,7 +147,7 @@ def download_raw_dataset(dataset_id:str,save_dir="dataset"):
         os.mkdir(f"{save_dir}/{split}")
 
         cocos[split] = {
-            "classes":[
+            "categories":[
                 {
                     "id": i,
                     "name": name,

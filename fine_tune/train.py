@@ -42,10 +42,11 @@ import segment_anything
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__),"..","roboflow-train","train"))
-from src.trainer import Trainer
+from src.abstract_monitored_trainer import AbstractMonitoredTrainer
 from src.env import (
     ENV,
     CACHE_PATH,
+    DATASET_ID,
 )
 
 GCP_EXPORT_BUCKET = f"roboflow-{ENV}-models"
@@ -69,7 +70,6 @@ from typing import List
 from dataclasses import asdict
 
 import wandb
-wandb.login()
 
 from tqdm import tqdm
 from numpy.random import permutation
@@ -82,26 +82,45 @@ import matplotlib.pyplot as plt
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-class CustomSAMTrainer(Trainer):
-    def __init__(self,*args,**kwargs):
+class CustomSAMTrainer(AbstractMonitoredTrainer):
+    def __init__(self,*args,
+        cache_path: str = CACHE_PATH,
+        dataset_id: str = DATASET_ID,
+                 **kwargs):
         super().__init__(*args,**kwargs)
+
+        if not os.path.exists(cache_path):
+            os.makedirs(cache_path)
+        self.cache_path = cache_path
+        self.dataset_id = dataset_id
+        self.dataset_dir = os.path.join(CACHE_PATH, "dataset")
+
+        assert dataset_id is not None,"dataset_id is None"
+
+        self.update_status("loading")
 
         self.cfg = self.make_config()
         self.load_datasets()
 
         self.sam = WrappedSamModel(self.cfg).to(device)
+
+        self.load_torch_datasets()
     
     def load_datasets(self):
 
         # download from roboflow
+        print(f"Downloading dataset {self.dataset_id}...")
         download_raw_dataset(self.dataset_id,self.dataset_dir)
 
-        self.sv_train_dataset,self.sv_valid_dataset = load_datasets(self.cfg,self.dataset_dir)
-
-        self.train_dataset = prepare_torch_dataset(self.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
-        self.valid_dataset = prepare_torch_dataset(self.predictor,self.cfg,self.sv_valid_dataset,max_prompts=self.cfg.data.valid_prompts)
+        self.sv_train_dataset,self.sv_valid_dataset = load_datasets(self.cfg.data,self.dataset_dir)
 
         self.cls_counts = get_class_counts(self.sv_train_dataset)
+        self.cfg.data.points_per_mask = self.get_points_per_mask()
+    
+    def load_torch_datasets(self):
+
+        self.train_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
+        self.valid_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_valid_dataset,max_prompts=self.cfg.data.valid_prompts)
     
     def get_points_per_mask(self)->List[int]:
         # try to fix training imbalances
@@ -110,7 +129,7 @@ class CustomSAMTrainer(Trainer):
         max_points_per_mask = 10
         
         # for all classes with < min_prompts_per_cls, give them a multiplier to get them up to min_prompts_per_cls
-        cls_multipliers = np.ones(len(self.sv_train_dataset.classes))
+        cls_multipliers = np.ones(len(self.sv_train_dataset.classes),dtype=np.int32)
         for cls,count in enumerate(self.cls_counts):
             if count < min_prompts_per_cls and count > 0:
                 cls_multipliers[cls] = min(max_points_per_mask,min_prompts_per_cls // count)
@@ -126,7 +145,7 @@ class CustomSAMTrainer(Trainer):
                 tasks=["point","box"],
                 train_prompts=10_000,
                 valid_prompts=200,
-                points_per_mask=self.get_points_per_mask(),
+                points_per_mask=1, # Will be changed later during load_datasets
             ),
             model=ModelConfig(
                 size="vit_t",
@@ -142,6 +161,8 @@ class CustomSAMTrainer(Trainer):
                 cache_embeddings=True,
                 run_grad=True,
                 export_full_decoder=True,
+                max_steps=25_000,
+                max_epochs=20,
             )
         )
     
@@ -149,6 +170,7 @@ class CustomSAMTrainer(Trainer):
 
         cfg = self.cfg
 
+        wandb.login()
         run = wandb.init(
             project="sam-fine-tune-prod",
             config=asdict(cfg)
@@ -166,7 +188,13 @@ class CustomSAMTrainer(Trainer):
 
         # iter through dataset in random order
         while curr_iters < cfg.train.max_steps:
+            # mark as eval mode
+            self.sam.eval()
+
             self.evaluate()
+
+            # mark as train mode
+            self.sam.train()
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 
                 with torch.no_grad():
@@ -188,7 +216,7 @@ class CustomSAMTrainer(Trainer):
                 # Logging
                 #
 
-                recent_losses += [loss_dict["cls_loss"].item()]
+                recent_losses += [loss_dict["cls_loss"]]
                 recent_losses = recent_losses[-cfg.train.log_period:]
 
                 if curr_iters % cfg.train.eval_period == 0:
@@ -270,8 +298,8 @@ class CustomSAMTrainer(Trainer):
                     pred_classes.append(pred_cls)
                     gt_classes.append(best_cls)
 
-        valid_mask_loss = running_losses["mask_loss"]/running_counts["mask_loss"]
-        valid_cls_mask_loss = running_losses["cls_mask_loss"]/running_counts["cls_mask_loss"]
+        valid_mask_loss = running_losses["mask"]/running_counts["mask"]
+        valid_cls_mask_loss = running_losses["cls_mask"]/running_counts["cls_mask"]
         valid_loss = running_loss/running_count
 
         assert viz_gt_mask is not None,"viz_gt_mask is None"
@@ -283,7 +311,7 @@ class CustomSAMTrainer(Trainer):
         assert len(gt_classes) > 0,"No gt classes found"
 
         # calculate confusion matrix
-        conf_matrix = show_confusion_matrix(gt_classes, pred_classes, class_names=self.valid_dataset.classes)
+        conf_matrix = show_confusion_matrix(gt_classes, pred_classes, class_names=self.sv_valid_dataset.classes)
         percent_recall = np.diag(conf_matrix) / np.sum(conf_matrix, axis = 1)
         avg_recall = np.mean(percent_recall)
 
@@ -334,15 +362,24 @@ class CustomSAMTrainer(Trainer):
         gcp_upload(GCP_EXPORT_BUCKET, f"smart_poly_models/{self.dataset_id}/", all_cache_files)
     
     def train(self):
-        self.train()
 
+        self.update_status("starting")
+        self._train()
+
+        self.sam.eval()
+        self.update_status("evaluating")
         results = self.evaluate()
 
         self.get_iou_vs_clicks()
+
+        self.sam.predict()
         # TODO figure out what specific metric to use for these ious
 
         if results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
             print("Exporting...")
+            self.update_status("exporting")
             self.export()
+            self.update_status("exported")
         else:
+            self.update_status("not exporting")
             print("Not exporting.")

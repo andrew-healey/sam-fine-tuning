@@ -1,2 +1,7 @@
 timm
 wandb
+onnxruntime==1.14.0 # necessary for in-browser wasm loading to work
+xxhash
+icecream
+dataclass_wizard
+roboflow

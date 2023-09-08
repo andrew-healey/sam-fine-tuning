@@ -359,12 +359,17 @@ class WrappedMaskDecoder(nn.Module):
 
 from persam.load import load_predictor
 class WrappedSamModel(nn.Module):
-    def __init__(self, cfg: Config):
+    def __init__(self,
+                 cfg: Config,
+                 predictor: SamPredictor=None,
+                 ):
         super().__init__()
         self.predictor = load_predictor(cfg.model.size)
+        self.predictor.model.prompt_encoder.cpu()
 
         self.decoder = WrappedMaskDecoder(self.predictor,cfg)
         self.encoder = WrappedImageEncoder(self.predictor,cfg)
+
     
     def get_trainable_parameters(self):
         return self.decoder.get_trainable_parameters() + self.encoder.get_trainable_parameters()
