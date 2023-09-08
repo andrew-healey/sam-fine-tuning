@@ -77,6 +77,8 @@ class TrainConfig(YAMLWizard):
         "cls_loss": 1,
     })
 
+    benchmark_clicks:List[int] = field(default_factory=lambda: [1,2,5])
+
     # use only losses for the cls tokens (disables loss for single-mask/multimask tokens)
     only_cls_loss:bool = True
 

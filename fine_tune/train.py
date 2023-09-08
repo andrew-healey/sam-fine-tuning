@@ -43,6 +43,14 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__),"..","roboflow-train","train"))
 from src.trainer import Trainer
+from src.env import (
+    ENV,
+    CACHE_PATH,
+)
+
+GCP_EXPORT_BUCKET = f"roboflow-{ENV}-models"
+
+from src.utils.cloud_utils import gcp_upload
 
 from .viz import show_confusion_matrix,plt_to_pil,clip_together_imgs,mask_to_img # configure headless matplotlib
 from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
@@ -51,6 +59,8 @@ from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_data
 from .datasets import get_class_counts
 from .common import SamDataset,get_max_iou_masks
 from .optimizer import get_optimizer
+from .interaction import get_ious_at_click_benchmarks
+from .export import export
 
 
 import numpy as np
@@ -65,8 +75,12 @@ from tqdm import tqdm
 from numpy.random import permutation
 import torch
 from random import randrange
+from glob import glob
+
+import matplotlib.pyplot as plt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class CustomSAMTrainer(Trainer):
     def __init__(self,*args,**kwargs):
@@ -275,7 +289,7 @@ class CustomSAMTrainer(Trainer):
 
         confusion_matrix = plt_to_pil()
 
-        wandb.log({
+        results = {
             "valid_loss": valid_loss,
 
             "valid_normal_mask_loss": valid_mask_loss,
@@ -286,4 +300,49 @@ class CustomSAMTrainer(Trainer):
 
             "confusion_matrix": wandb.Image(confusion_matrix),
             "avg_recall": avg_recall.item(),
+        }
+
+        wandb.log(results)
+
+        return 
+    
+    def get_iou_vs_clicks(self):
+        cls_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True)
+        normal_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False)
+
+        # graph
+        plt.plot(self.cfg.train.benchmark_clicks,cls_ious_per_benchmark,label="cls")
+        plt.plot(self.cfg.train.benchmark_clicks,normal_ious_per_benchmark,label="normal")
+        plt.legend()
+        plt.xlabel("Clicks")
+        plt.ylabel("IoU")
+        plt.title("IoU vs. Clicks")
+
+        iou_vs_clicks = plt_to_pil()
+
+        wandb.log({
+            "iou_vs_clicks": wandb.Image(iou_vs_clicks),
         })
+
+        return cls_ious_per_benchmark,normal_ious_per_benchmark
+    
+    def export(self):
+        export(CACHE_PATH,self.cfg,self.sam)
+
+        all_cache_files = glob(os.path.join(CACHE_PATH,"*"))
+
+        gcp_upload(GCP_EXPORT_BUCKET, f"smart_poly_models/{self.dataset_id}/", all_cache_files)
+    
+    def train(self):
+        self.train()
+
+        results = self.evaluate()
+
+        self.get_iou_vs_clicks()
+        # TODO figure out what specific metric to use for these ious
+
+        if results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
+            print("Exporting...")
+            self.export()
+        else:
+            print("Not exporting.")

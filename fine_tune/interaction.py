@@ -13,8 +13,9 @@ Defines utils for benchmarking interactive segmentation performance.
 import torch
 from .prompts import Prompt
 from dataclasses import replace
+from typing import Optional,List
 
-def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt,threshold:float)->Prompt:
+def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt,threshold:Optional[float]=None)->Prompt:
     gt_binary_mask = prompt.gt_masks[gt_mask_idx]
 
     # bool-ify the masks
@@ -25,7 +26,7 @@ def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt
     false_positives = ~gt_binary_mask & binary_mask
 
     iou = (binary_mask & gt_binary_mask).sum() / (binary_mask | gt_binary_mask).sum()
-    if iou >= threshold: return None
+    if threshold is not None and iou >= threshold: return None
 
     # pick random next click
     fn_indices  = torch.nonzero(false_negatives)
@@ -108,3 +109,44 @@ def get_clicks_per_instance(sam,valid_dataset:SamDataset,threshold:float)->int:
     assert running_count > 0,"No instances in dataset"
     
     return running_clicks / running_count
+
+def get_ious_at_click_benchmarks(
+        sam,
+        valid_dataset:SamDataset,
+        nums_clicks:List[int],
+        use_cls:bool,
+    )->List[float]:
+    max_num_clicks = max(nums_clicks)
+
+    running_ious = [0] * len(nums_clicks)
+    running_count = 0
+
+    for batch in valid_dataset:
+        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(batch,sam.device)
+
+        encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
+
+        for click_idx in range(max_num_clicks):
+            prompt_input = valid_dataset.prompt_to_tensors(prompt,sizes)
+
+            low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
+
+            if use_cls:
+                (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
+
+                # get the most correct cls prediction
+                gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_info["gt_masks"],binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.model.decoder.num_classes).to(sam.device))
+            else:
+                (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
+
+                # get the most correct cls prediction
+                gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_info["gt_masks"],binary_masks,None,None)
+
+            if click_idx in nums_clicks:
+                iou_idx = nums_clicks.index(click_idx)
+                running_ious[iou_idx] += max_iou
+            prompt = get_next_interaction(binary_mask,best_det,prompt)
+    
+    assert running_count > 0,"No instances in dataset"
+
+    return [iou / running_count for iou in running_ious]
