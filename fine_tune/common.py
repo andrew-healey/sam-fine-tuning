@@ -182,6 +182,7 @@ class SamDataset(Dataset):
             coords_torch = torch.as_tensor(point_coords, dtype=torch.float)
             labels_torch = torch.as_tensor(point_labels, dtype=torch.int)
             coords_torch, labels_torch = coords_torch[None, :, :], labels_torch[None, :]
+
         if box is not None:
             box = self.predictor.transform.apply_boxes(box, original_size)
             box_torch = torch.as_tensor(box, dtype=torch.float)

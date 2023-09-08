@@ -26,7 +26,7 @@ Todos:
 - Confusion matrix benchmarking - DONE!
 - Unified benchmarking
 - Automatically pick best pred-IoU threshold for SAM vs. custom SAM
-- Attn masks + duplicate points: LHS can't attend to RHS, vice versa - or maybe pad + batch
+- Attn masks + duplicate points: LHS can't attend to RHS, vice versa - or maybe pad + batch - DONE!
 - Simple Flask server for requesting+downloading a trained model
 - ONNX export as a function - DONE!
 - Train loop as a function - no custom configs yet, just set defaults

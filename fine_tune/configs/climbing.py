@@ -17,19 +17,20 @@ cfg = Config(
         points_per_mask=[1,10,10],
     ),
     model=ModelConfig(
-        size="vit_h",
+        size="vit_t",
         encoder=ImageEncoderConfig(
             use_patch_embed=False
         ),
         decoder=MaskDecoderConfig(
-            use_lora=True,
+            use_lora=False,
             lora_r=1,
-            use_cls=False,
+            use_cls=True,
         ),
     ),
     train=TrainConfig(
-        initial_lr=2e-4,
+        initial_lr=8e-4,
         cache_embeddings=True,
-        run_grad=False
+        run_grad=True,
+        max_steps=200,
     )
 )

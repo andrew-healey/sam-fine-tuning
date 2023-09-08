@@ -170,6 +170,9 @@ class LoRA_Mask_Decoder(nn.Module):
         ret.extend(self.final_attn.parameters())
 
         return ret
+    
+    def get_trainable_state_dict(self):
+        return {k: v for k, v in self.state_dict().items() if not k.startswith('mask_decoder')}
 
     def forward(self, *args, **kwargs):
         return self.mask_decoder(*args, **kwargs)
