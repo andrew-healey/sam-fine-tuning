@@ -10,7 +10,7 @@ import numpy as np
 def get_optimizer(cfg: Config, sam: WrappedSamModel):
     train = cfg.train
     combined_params = sam.get_trainable_parameters()
-    optimizer = optim.AdamW(combined_params, lr=train.initial_lr, betas=(0.9, 0.999), weight_decay=train.weight_decay) # criterion = torch.nn.CrossEntropyLoss()
+    optimizer = optim.AdamW(combined_params, lr=train.initial_lr, betas=(0.9, 0.999), weight_decay=train.weight_decay,_allow_empty_param_list=True)
 
     num_params = sum([np.prod(p.size()) for p in combined_params if p.requires_grad])
     print(f"Total trainable parameters: {num_params}")
