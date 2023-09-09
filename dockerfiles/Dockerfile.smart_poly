@@ -25,6 +25,9 @@ RUN pip install --upgrade --no-deps supervision
 COPY scripts/get_weights.sh .
 RUN bash get_weights.sh
 
+ARG WANDB_API_KEY
+ENV WANDB_API_KEY=$WANDB_API_KEY
+
 COPY segment-anything/segment_anything segment_anything
 
 COPY bin/run.sh .
