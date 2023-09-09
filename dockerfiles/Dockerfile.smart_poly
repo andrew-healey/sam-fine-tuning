@@ -22,9 +22,13 @@ RUN pip install -r requirements.txt
 # prevent supervision from breaking the cv2 install
 RUN pip install --upgrade --no-deps supervision
 
+COPY scripts/get_weights.sh .
+RUN bash get_weights.sh
+
 COPY segment-anything/segment_anything segment_anything
 
 COPY bin/run.sh .
+RUN chmod +x run.sh
 COPY roboflow-train/train/bin/run_and_catch_error.py .
 
 COPY persam persam
