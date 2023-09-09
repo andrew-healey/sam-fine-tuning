@@ -24,7 +24,7 @@ RUN pip install -r requirements.txt
 # prevent supervision from breaking the cv2 install
 RUN pip install --upgrade --no-deps supervision
 
-COPY roboflow-train/train/bin/run.sh .
+COPY bin/run.sh .
 COPY roboflow-train/train/bin/run_and_catch_error.py .
 
 COPY persam persam

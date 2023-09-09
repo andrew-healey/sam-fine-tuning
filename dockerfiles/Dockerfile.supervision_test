@@ -1,0 +1,7 @@
+FROM nvcr.io/nvidia/pytorch:22.11-py3
+
+WORKDIR /app
+
+RUN pip install supervision
+
+ENTRYPOINT [ "python", "-c", "import cv2"]

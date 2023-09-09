@@ -115,6 +115,7 @@ def get_ious_at_click_benchmarks(
         valid_dataset:SamDataset,
         nums_clicks:List[int],
         use_cls:bool,
+        device:torch.device
     )->List[float]:
     max_num_clicks = max(nums_clicks)
 
@@ -122,7 +123,7 @@ def get_ious_at_click_benchmarks(
     running_count = 0
 
     for batch in valid_dataset:
-        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(batch,sam.device)
+        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(batch,device)
 
         encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
 

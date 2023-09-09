@@ -217,7 +217,7 @@ class WrappedMaskDecoder(nn.Module):
         if self.use_cls:
             num_classes = cfg.data.num_classes
             assert num_classes is not None, "Must set num_classes before initializing the mask decoder"
-            self.mask_decoder.add_cls_token(num_classes)
+            self.mask_decoder.add_cls_token(num_classes, cfg.train.only_cls_loss)
 
             if self.cfg.train.warm_start:
                 # warm-start the cls tokens to match the single-mask token
@@ -251,7 +251,7 @@ class WrappedMaskDecoder(nn.Module):
             ):
 
             def add_losses(losses):
-                loss = torch.tensor(0,dtype=torch.float32,device=low_res_masks.device)
+                loss = torch.tensor(0,dtype=torch.float32,device=gt_info["masks"].device)
                 for k,v in losses.items():
                     scale = self.cfg.train.loss_scales.get(k,0)
                     if scale != 0:
@@ -262,12 +262,17 @@ class WrappedMaskDecoder(nn.Module):
             use_cls_loss = self.use_cls and gt_cls_info is not None
             use_normal_loss = not (self.cfg.train.only_cls_loss and use_cls_loss)
 
+            calculate_normal_loss = not (self.cfg.train.only_cls_loss and use_cls_loss and self.training)
+
             losses = {}
 
             gt_masks = gt_info["masks"]
 
             # normal loss
-            if True:
+            if calculate_normal_loss:
+
+                assert low_res_masks is not None,"low_res_masks is None"
+                assert iou_predictions is not None,"iou_predictions is None"
 
                 (upscaled_masks,binary_masks), max_idx = self.postprocess(low_res_masks,iou_predictions, sizes)
 
@@ -321,7 +326,7 @@ class WrappedMaskDecoder(nn.Module):
                 for k,v in cls_losses.items():
                     losses[f"cls_{k}"] = v
                 
-            loss = torch.tensor(0,dtype=torch.float32,device=low_res_masks.device)
+            loss = torch.tensor(0,dtype=torch.float32,device=gt_masks.device)
             if use_normal_loss:
                 loss += losses["loss"]
             if use_cls_loss:

@@ -79,7 +79,6 @@ from glob import glob
 
 import matplotlib.pyplot as plt
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class CustomSAMTrainer(AbstractMonitoredTrainer):
@@ -95,6 +94,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         self.dataset_id = dataset_id
         self.dataset_dir = os.path.join(CACHE_PATH, "dataset")
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         assert dataset_id is not None,"dataset_id is None"
 
         self.update_status("loading")
@@ -102,7 +103,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         self.cfg = self.make_config()
         self.load_datasets()
 
-        self.sam = WrappedSamModel(self.cfg).to(device)
+        self.sam = WrappedSamModel(self.cfg).to(self.device)
 
         self.load_torch_datasets()
     
@@ -161,8 +162,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                 cache_embeddings=True,
                 run_grad=True,
                 export_full_decoder=True,
-                max_steps=25_000,
-                max_epochs=20,
+                max_steps=5_000,
+                max_epochs=10,
             )
         )
     
@@ -187,7 +188,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         curr_epoch = 0
 
         # iter through dataset in random order
-        while curr_iters < cfg.train.max_steps:
+        while curr_iters < cfg.train.max_steps and curr_epoch < cfg.train.max_epochs:
             # mark as eval mode
             self.sam.eval()
 
@@ -198,7 +199,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 
                 with torch.no_grad():
-                    prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(self.train_dataset[idx],device)
+                    prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(self.train_dataset[idx],self.device)
                 
                 encoder_output = self.sam.encoder.get_decoder_input(imgs,prompt)
                 pred = self.sam.decoder(**prompt_input,**encoder_output)
@@ -260,7 +261,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         for batch in tqdm(self.valid_dataset):
 
-            batch = SamDataset.to_device(batch,device)
+            batch = SamDataset.to_device(batch,self.device)
             prompt_input, gt_info, gt_cls_info, imgs,sizes, prompt = batch
 
             use_cls = cfg.model.decoder.use_cls and gt_cls_info is not None
@@ -287,7 +288,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                 if use_cls:
                     # get pred gt cls and mask
                     (_,cls_binary_masks), pred_cls = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
-                    cls_gt_binary_mask,_,_,best_cls,_ = get_max_iou_masks(gt_info["masks"],cls_binary_masks,gt_cls_info["gt_cls"],torch.arange(cfg.data.num_classes).to(device))
+                    cls_gt_binary_mask,_,_,best_cls,_ = get_max_iou_masks(gt_info["masks"],cls_binary_masks,gt_cls_info["gt_cls"],torch.arange(cfg.data.num_classes).to(self.device))
 
                     if viz_idx == running_count:
                         viz_img = imgs[0]
@@ -335,8 +336,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         return 
     
     def get_iou_vs_clicks(self):
-        cls_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True)
-        normal_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False)
+        cls_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
+        normal_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
 
         # graph
         plt.plot(self.cfg.train.benchmark_clicks,cls_ious_per_benchmark,label="cls")
@@ -372,7 +373,6 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         self.get_iou_vs_clicks()
 
-        self.sam.predict()
         # TODO figure out what specific metric to use for these ious
 
         if results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
