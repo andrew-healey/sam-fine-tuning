@@ -49,6 +49,8 @@ from src.env import (
     DATASET_ID,
 )
 
+always_export = os.environ.get("ALWAYS_EXPORT",False) == "true"
+
 GCP_EXPORT_BUCKET = f"roboflow-{ENV}-models"
 
 from src.utils.cloud_utils import gcp_upload
@@ -58,7 +60,7 @@ from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
 from .cfg import Config,DataConfig,ModelConfig,TrainConfig
 from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
 from .datasets import get_class_counts
-from .common import SamDataset,get_max_iou_masks
+from .common import SamDataset,get_max_iou_masks,to
 from .optimizer import get_optimizer
 from .interaction import get_ious_at_click_benchmarks
 from .export import export
@@ -79,8 +81,6 @@ from glob import glob
 
 import matplotlib.pyplot as plt
 
-
-
 class CustomSAMTrainer(AbstractMonitoredTrainer):
     def __init__(self,*args,
         cache_path: str = CACHE_PATH,
@@ -88,9 +88,14 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                  **kwargs):
         super().__init__(*args,**kwargs)
 
+        self.cache_path = cache_path
+        self.model_path = os.path.join(cache_path,"model")
+
         if not os.path.exists(cache_path):
             os.makedirs(cache_path)
-        self.cache_path = cache_path
+        if not os.path.exists(self.model_path):
+            os.makedirs(self.model_path)
+
         self.dataset_id = dataset_id
         self.dataset_dir = os.path.join(CACHE_PATH, "dataset")
 
@@ -120,6 +125,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
     
     def load_torch_datasets(self):
 
+        assert self.cfg.data.points_per_mask != -1,"points_per_mask is not set"
+
         self.train_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
         self.valid_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_valid_dataset,max_prompts=self.cfg.data.valid_prompts)
     
@@ -146,7 +153,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                 tasks=["point","box"],
                 train_prompts=10_000,
                 valid_prompts=200,
-                points_per_mask=1, # Will be changed later during load_datasets
+                points_per_mask=-1, # Will be changed later during load_datasets
             ),
             model=ModelConfig(
                 size="vit_t",
@@ -158,12 +165,12 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                 ),
             ),
             train=TrainConfig(
-                initial_lr=2e-4,
+                initial_lr=8e-4,
                 cache_embeddings=True,
                 run_grad=True,
                 export_full_decoder=True,
                 max_steps=5_000,
-                max_epochs=10,
+                max_epochs=1,
             )
         )
     
@@ -199,7 +206,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 
                 with torch.no_grad():
-                    prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(self.train_dataset[idx],self.device)
+                    prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(self.train_dataset[idx],self.device)
                 
                 encoder_output = self.sam.encoder.get_decoder_input(imgs,prompt)
                 pred = self.sam.decoder(**prompt_input,**encoder_output)
@@ -261,7 +268,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         for batch in tqdm(self.valid_dataset):
 
-            batch = SamDataset.to_device(batch,self.device)
+            batch = to(batch,self.device)
             prompt_input, gt_info, gt_cls_info, imgs,sizes, prompt = batch
 
             use_cls = cfg.model.decoder.use_cls and gt_cls_info is not None
@@ -333,13 +340,15 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         wandb.log(results)
 
-        return 
+        return results
     
     def get_iou_vs_clicks(self):
         cls_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
         normal_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
 
         # graph
+        #clear 
+        plt.clf()
         plt.plot(self.cfg.train.benchmark_clicks,cls_ious_per_benchmark,label="cls")
         plt.plot(self.cfg.train.benchmark_clicks,normal_ious_per_benchmark,label="normal")
         plt.legend()
@@ -356,9 +365,9 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         return cls_ious_per_benchmark,normal_ious_per_benchmark
     
     def export(self):
-        export(CACHE_PATH,self.cfg,self.sam)
+        export(self.model_path,self.cfg,self.sam,self.device)
 
-        all_cache_files = glob(os.path.join(CACHE_PATH,"*"))
+        all_cache_files = glob(os.path.join(self.model_path,"*"))
 
         gcp_upload(GCP_EXPORT_BUCKET, f"smart_poly_models/{self.dataset_id}/", all_cache_files)
     
@@ -375,7 +384,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         # TODO figure out what specific metric to use for these ious
 
-        if results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
+        if always_export or results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
             print("Exporting...")
             self.update_status("exporting")
             self.export()
@@ -383,3 +392,5 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         else:
             self.update_status("not exporting")
             print("Not exporting.")
+        
+        print("Done!")

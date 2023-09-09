@@ -375,6 +375,8 @@ class WrappedSamModel(nn.Module):
         self.decoder = WrappedMaskDecoder(self.predictor,cfg)
         self.encoder = WrappedImageEncoder(self.predictor,cfg)
 
+        self.cfg = cfg
+
     
     def get_trainable_parameters(self):
         return self.decoder.get_trainable_parameters() + self.encoder.get_trainable_parameters()

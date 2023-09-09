@@ -12,8 +12,6 @@ RUN aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
 RUN aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
 RUN aws configure set default.region $AWS_DEFAULT_REGION
 
-COPY segment-anything/segment_anything segment_anything
-
 COPy requirements.roboflow-train.txt .
 # COPY roboflow-train/train/requirements.txt requirements.roboflow-train.txt
 COPY roboflow-train/train/src src
@@ -24,6 +22,8 @@ RUN pip install -r requirements.txt
 # prevent supervision from breaking the cv2 install
 RUN pip install --upgrade --no-deps supervision
 
+COPY segment-anything/segment_anything segment_anything
+
 COPY bin/run.sh .
 COPY roboflow-train/train/bin/run_and_catch_error.py .
 
@@ -32,6 +32,3 @@ COPY fine_tune fine_tune
 
 ENV PYTHONPATH=/app/
 CMD [ "./run.sh", "fine_tune.aws_smart_poly_config"]
-
-# to build dockerfile:
-# docker build --build-arg AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID --build-arg AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY --build-arg AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION -f dockerfiles/Dockerfile.smart_poly -t smart_poly .

@@ -67,7 +67,7 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
 
     return train_dataset,valid_dataset
 
-from .common import SamDataset,SamComboDataset,RandomPointDataset,SamSemSegDataset,SamBoxDataset,SamPointDataset,SamDummyMaskDataset,SamEverythingDataset
+from .common import SamDataset,SplitSamDataset,SamComboDataset,RandomPointDataset,SamSemSegDataset,SamBoxDataset,SamPointDataset,SamDummyMaskDataset,SamEverythingDataset
 sam_dataset_registry = {
     "sem_seg": lambda ds,cfg,args: SamSemSegDataset(ds,*args),
     "box": lambda ds,cfg,args: SamBoxDataset(ds,*args),
@@ -78,7 +78,7 @@ sam_dataset_registry = {
 }
 
 from segment_anything import SamPredictor
-from torch.utils.data import random_split
+import numpy as np
 
 def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Dataset,max_prompts:Optional[int]=None)->sv.DetectionDataset:
     args = [predictor]
@@ -91,7 +91,7 @@ def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Dataset,max_promp
     num_prompts = len(ret)
     if max_prompts is not None and num_prompts > max_prompts:
         # split off prompts
-        ret,_ = random_split(ret,[max_prompts,num_prompts-max_prompts])
+        ret = SplitSamDataset(ret,max_prompts/num_prompts)
     return ret
 
 from src.utils.cloud_utils import firestore,gac_json,gcp_download
@@ -217,3 +217,5 @@ def download_raw_dataset(dataset_id:str,save_dir="dataset"):
     for split in ["train","valid","test"]:
         with open(f"{save_dir}/{split}/_annotations.coco.json","w") as f:
             json.dump(cocos[split],f)
+    
+    print(f"Loaded {len(sources)} images from dataset {dataset_id} into {save_dir}")

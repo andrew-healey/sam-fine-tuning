@@ -14,9 +14,13 @@ import torch
 from .prompts import Prompt
 from dataclasses import replace
 from typing import Optional,List
+import numpy as np
 
 def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt,threshold:Optional[float]=None)->Prompt:
-    gt_binary_mask = prompt.gt_masks[gt_mask_idx]
+
+    binary_mask = binary_mask.detach().cpu().numpy()
+
+    gt_binary_mask = prompt.gt_masks[gt_mask_idx] if prompt.gt_masks is not None else prompt.gt_mask
 
     # bool-ify the masks
     binary_mask = binary_mask > 0
@@ -29,24 +33,24 @@ def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt
     if threshold is not None and iou >= threshold: return None
 
     # pick random next click
-    fn_indices  = torch.nonzero(false_negatives)
-    fp_indices  = torch.nonzero(false_positives)
+    fn_indices  = np.argwhere(false_negatives)
+    fp_indices  = np.argwhere(false_positives)
 
     # label fn_indices with 1, fp_indices with 0
-    fn_indices = torch.cat([fn_indices,torch.ones((fn_indices.shape[0],1),dtype=torch.int64)],dim=1)
-    fp_indices = torch.cat([fp_indices,torch.zeros((fp_indices.shape[0],1),dtype=torch.int64)],dim=1)
+    fn_indices = np.concatenate([fn_indices,np.ones((fn_indices.shape[0],1),dtype=int)],axis=1)
+    fp_indices = np.concatenate([fp_indices,np.zeros((fp_indices.shape[0],1),dtype=int)],axis=1)
 
     # concatenate indices
-    indices = torch.cat([fn_indices,fp_indices],dim=0)
+    indices = np.concatenate([fn_indices,fp_indices],axis=0)
 
-    rand_idx = torch.randint(indices.shape[0],(1,))[0]
+    rand_idx = np.random.randint(indices.shape[0])
     
     pt = indices[rand_idx,:2][::-1][None,...] # convert from (y,x) to (x,y)
     label = indices[rand_idx,2][None,...]
 
     # add to prompt
-    new_point = torch.cat([prompt.points,pt],dim=0) if prompt.points is not None else pt
-    new_label = torch.cat([prompt.labels,label],dim=0) if prompt.labels is not None else label
+    new_point = np.concatenate([prompt.points,pt],axis=0) if prompt.points is not None else pt
+    new_label = np.concatenate([prompt.labels,label],axis=0).astype(bool) if prompt.labels is not None else label.astype(bool)
 
     new_mask = gt_binary_mask
 
@@ -70,7 +74,7 @@ def get_refinement_prompt(pred_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt)
 
     return ret
 
-from .common import SamDataset,get_max_iou_masks
+from .common import SamDataset,get_max_iou_masks,to
 
 # TODO integrate this with the confusion matrix finder + general evaluation loop - not important now, but good for efficiency later
 # TODO more urgent: include a switch to test with cls or without cls--i.e. ask "has custom SAM improved performance?"
@@ -85,7 +89,7 @@ def get_clicks_per_instance(sam,valid_dataset:SamDataset,threshold:float)->int:
 
     for batch in valid_dataset:
 
-        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(batch,sam.device)
+        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(batch,sam.device)
 
         assert sam.cfg.model.decoder.use_cls,"This function only works for cls models so far. TODO - add support for normal classless SAM."
 
@@ -110,6 +114,8 @@ def get_clicks_per_instance(sam,valid_dataset:SamDataset,threshold:float)->int:
     
     return running_clicks / running_count
 
+from tqdm import tqdm
+@torch.no_grad()
 def get_ious_at_click_benchmarks(
         sam,
         valid_dataset:SamDataset,
@@ -122,13 +128,16 @@ def get_ious_at_click_benchmarks(
     running_ious = [0] * len(nums_clicks)
     running_count = 0
 
-    for batch in valid_dataset:
-        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = SamDataset.to_device(batch,device)
+    for batch in tqdm(valid_dataset):
+        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(batch,device)
+        gt_masks = gt_info["masks"]
+        device = gt_masks.device
 
         encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
 
         for click_idx in range(max_num_clicks):
-            prompt_input = valid_dataset.prompt_to_tensors(prompt,sizes)
+            prompt_input,gt_masks = to(valid_dataset.prompt_to_tensors(prompt,sizes),device)
+            gt_cls_info = to(valid_dataset.cls_to_tensors(prompt),device)
 
             low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
 
@@ -136,17 +145,18 @@ def get_ious_at_click_benchmarks(
                 (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
 
                 # get the most correct cls prediction
-                gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_info["gt_masks"],binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.model.decoder.num_classes).to(sam.device))
+                gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
             else:
                 (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
 
                 # get the most correct cls prediction
-                gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_info["gt_masks"],binary_masks,None,None)
+                gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
 
             if click_idx in nums_clicks:
                 iou_idx = nums_clicks.index(click_idx)
-                running_ious[iou_idx] += max_iou
+                running_ious[iou_idx] += max_iou.cpu().item()
             prompt = get_next_interaction(binary_mask,best_det,prompt)
+        running_count += 1
     
     assert running_count > 0,"No instances in dataset"
 

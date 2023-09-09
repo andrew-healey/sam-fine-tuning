@@ -7,7 +7,8 @@ import os
 def export(
         dir:str,
         cfg:Config,
-        sam: WrappedSamModel
+        sam: WrappedSamModel,
+        device:torch.device
         ):
 
         # write cfg to dir/cfg.yaml
@@ -25,7 +26,7 @@ def export(
         torch.save(sam.get_trainable_state_dict(),os.path.join(dir,"trainable.pt"))
 
         # export onnx
-        onnx_export(dir,cfg,sam)
+        onnx_export(dir,cfg,sam,device)
 
 import torch
 
@@ -37,19 +38,23 @@ from onnxruntime.quantization.quantize import quantize_dynamic
 
 import warnings
 
-def onnx_export(dir:str,cfg:Config,sam:WrappedSamModel):
+cpu = torch.device("cpu")
+def onnx_export(dir:str,cfg:Config,sam:WrappedSamModel,device:torch.device):
+
+    og_sam = sam.predictor.model
+    og_sam.to(cpu)
 
     onnx_model_path = f"{dir}/with_classes.onnx"
 
-    onnx_model = SamOnnxModel(sam, return_single_mask=True)
+    onnx_model = SamOnnxModel(og_sam, return_single_mask=True)
 
     dynamic_axes = {
         "point_coords": {1: "num_points"},
         "point_labels": {1: "num_points"},
     }
 
-    embed_dim = sam.prompt_encoder.embed_dim
-    embed_size = sam.prompt_encoder.image_embedding_size
+    embed_dim = og_sam.prompt_encoder.embed_dim
+    embed_size = og_sam.prompt_encoder.image_embedding_size
     mask_input_size = [4 * x for x in embed_size]
     dummy_inputs = {
         "image_embeddings": torch.randn(1, embed_dim, *embed_size, dtype=torch.float),
@@ -88,3 +93,6 @@ def onnx_export(dir:str,cfg:Config,sam:WrappedSamModel):
         reduce_range=False,
         weight_type=QuantType.QUInt8,
     )
+
+    og_sam.to(device)
+    og_sam.prompt_encoder.to(cpu)

@@ -112,7 +112,10 @@ class SamDataset(Dataset):
             "context_embeddings": context_torch,
         }
 
-    def cls_to_tensors(self, gt_cls: np.ndarray, gt_clss: np.ndarray):
+    def cls_to_tensors(self, prompt: Prompt):
+        gt_cls=prompt.gt_cls
+        gt_clss=prompt.gt_clss
+
         if gt_cls is not None:
             gt_clss = gt_cls[None,...]
 
@@ -140,7 +143,7 @@ class SamDataset(Dataset):
 
         prompt_input,gt_masks = self.prompt_to_tensors(prompt,sizes)
 
-        gt_cls_info = self.cls_to_tensors(prompt.gt_cls,prompt.gt_clss)
+        gt_cls_info = self.cls_to_tensors(prompt)
 
         gt_info = {
             "masks": gt_masks,
@@ -149,18 +152,6 @@ class SamDataset(Dataset):
 
         return prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt
     
-    @staticmethod
-    def to_device(batch, device):
-        prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt = batch
-
-        # move all to device
-        prompt_input = {k:v.to(device) if torch.is_tensor(v) else v for k,v in prompt_input.items()}
-        gt_info = {k:v.to(device) if torch.is_tensor(v) else v for k,v in gt_info.items()}
-        gt_cls_info = {k:v.to(device) for k,v in gt_cls_info.items()} if gt_cls_info is not None else None
-        imgs = tuple(img.to(device) if torch.is_tensor(img) else img for img in imgs)
-
-        return prompt_input,gt_info, gt_cls_info, imgs,sizes, prompt
-
     def prompt_to_tensors(self,prompt: Prompt, sizing: Tuple[torch.Tensor,torch.Tensor]):
 
         # mimic the predict() function from the SAM predictor
@@ -476,7 +467,17 @@ class SamDummyMaskDataset(SamDataset):
                 gt_mask=det_mask,
                 multimask=False,
             )
+        
+from random import sample
+class SplitSamDataset(SamDataset):
+    def __init__(self,ds:SamDataset,fraction:float):
+        self.ds = ds
+        self.split = fraction
 
+        self.prompts = sample(self.ds.prompts,int(len(self.ds.prompts) * fraction))
+        self.dataset = self.ds.dataset
+        self.predictor = self.ds.predictor
+    
 #
 # UTILS
 #
@@ -585,3 +586,13 @@ def get_max_iou_masks(gt_masks: Tensor, pred_masks: Tensor, gt_cls: Tensor=None,
     assert torch.max(ious) == best_iou, "min-finding is wrong"
 
     return gt_masks[best_gt_idx], pred_masks[best_pred_idx], best_iou, best_pred_idx, best_gt_idx
+
+def to(a,device:torch.device):
+    if torch.is_tensor(a):
+        return a.to(device)
+    elif isinstance(a,dict):
+        return {k:to(v,device) for k,v in a.items()}
+    elif isinstance(a,(list,tuple)):
+        return type(a)(to(v,device) for v in a)
+    else:
+        return a
