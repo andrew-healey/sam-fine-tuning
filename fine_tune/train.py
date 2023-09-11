@@ -60,9 +60,10 @@ from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
 from .cfg import Config,DataConfig,ModelConfig,TrainConfig
 from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
 from .datasets import get_class_counts
-from .common import SamDataset,get_max_iou_masks,to
+from .common import SamDataset,to
+from .binary_mask import get_max_iou_masks
 from .optimizer import get_optimizer
-from .interaction import get_ious_at_click_benchmarks
+from .interaction import get_ious_and_clicks
 from .export import export
 
 
@@ -133,7 +134,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
     def get_points_per_mask(self)->List[int]:
         # try to fix training imbalances
 
-        min_prompts_per_cls = 100
+        min_prompts_per_cls = 500
         max_points_per_mask = 10
         
         # for all classes with < min_prompts_per_cls, give them a multiplier to get them up to min_prompts_per_cls
@@ -141,6 +142,9 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         for cls,count in enumerate(self.cls_counts):
             if count < min_prompts_per_cls and count > 0:
                 cls_multipliers[cls] = min(max_points_per_mask,min_prompts_per_cls // count)
+        
+        print("cls counts",self.cls_counts)
+        print("points per mask",cls_multipliers)
         
         return cls_multipliers.tolist()
     
@@ -151,7 +155,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         return Config(
             data=DataConfig(
                 tasks=["point","box"],
-                train_prompts=10_000,
+                # train_prompts=10_000,
                 valid_prompts=200,
                 points_per_mask=-1, # Will be changed later during load_datasets
             ),
@@ -165,12 +169,12 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                 ),
             ),
             train=TrainConfig(
-                initial_lr=8e-4,
+                initial_lr=2e-4,
                 cache_embeddings=True,
                 run_grad=True,
                 export_full_decoder=True,
-                max_steps=5_000,
-                max_epochs=1,
+                max_steps=20_000,
+                max_epochs=3,
             )
         )
     
@@ -200,6 +204,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             self.sam.eval()
 
             self.evaluate()
+            self.get_iou_vs_clicks()
 
             # mark as train mode
             self.sam.train()
@@ -343,14 +348,19 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         return results
     
     def get_iou_vs_clicks(self):
-        cls_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
-        normal_ious_per_benchmark = get_ious_at_click_benchmarks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
+        cls_ious_and_clicks = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
+        cls_ious = [iou for iou,_ in cls_ious_and_clicks]
+        cls_clicks = [click for _,click in cls_ious_and_clicks]
+
+        normal_ious_and_clicks = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
+        normal_ious = [iou for iou,_ in normal_ious_and_clicks]
+        normal_clicks = [click for _,click in normal_ious_and_clicks]
 
         # graph
         #clear 
         plt.clf()
-        plt.plot(self.cfg.train.benchmark_clicks,cls_ious_per_benchmark,label="cls")
-        plt.plot(self.cfg.train.benchmark_clicks,normal_ious_per_benchmark,label="normal")
+        plt.plot(cls_clicks,cls_ious,label="cls")
+        plt.plot(normal_clicks,normal_ious,label="normal")
         plt.legend()
         plt.xlabel("Clicks")
         plt.ylabel("IoU")
@@ -362,7 +372,10 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             "iou_vs_clicks": wandb.Image(iou_vs_clicks),
         })
 
-        return cls_ious_per_benchmark,normal_ious_per_benchmark
+        cls_click_one_miou = np.mean([iou for iou,click in cls_ious_and_clicks if click == 1])
+        normal_click_one_miou = np.mean([iou for iou,click in normal_ious_and_clicks if click == 1])
+
+        return cls_click_one_miou,normal_click_one_miou
     
     def export(self):
         export(self.model_path,self.cfg,self.sam,self.device)
@@ -380,11 +393,11 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         self.update_status("evaluating")
         results = self.evaluate()
 
-        self.get_iou_vs_clicks()
+        cls_miou,normal_miou =self.get_iou_vs_clicks()
 
         # TODO figure out what specific metric to use for these ious
 
-        if always_export or results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"]:
+        if always_export or results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"] and cls_miou > normal_miou:
             print("Exporting...")
             self.update_status("exporting")
             self.export()

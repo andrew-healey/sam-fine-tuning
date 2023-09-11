@@ -74,59 +74,23 @@ def get_refinement_prompt(pred_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt)
 
     return ret
 
-from .common import SamDataset,get_max_iou_masks,to
+from .common import SamDataset,to
+from .binary_mask import get_max_iou_masks
 
-# TODO integrate this with the confusion matrix finder + general evaluation loop - not important now, but good for efficiency later
-# TODO more urgent: include a switch to test with cls or without cls--i.e. ask "has custom SAM improved performance?"
-def get_clicks_per_instance(sam,valid_dataset:SamDataset,threshold:float)->int:
-    """
-    Note: the batch has only one instance.
-    Measure the number of clicks needed to get to a certain IoU threshold.
-    """
-
-    running_clicks = 0
-    running_count = 0
-
-    for batch in valid_dataset:
-
-        prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(batch,sam.device)
-
-        assert sam.cfg.model.decoder.use_cls,"This function only works for cls models so far. TODO - add support for normal classless SAM."
-
-        encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
-
-        while True:
-            prompt_input = valid_dataset.prompt_to_tensors(prompt,sizes)
-            low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
-
-            (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
-            running_clicks += 1
-
-            # get the most correct cls prediction
-            gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_info["gt_masks"],binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.model.decoder.num_classes).to(sam.device))
-
-            prompt = get_next_interaction(binary_mask,best_det,prompt,threshold)
-            if prompt is None: break
-        
-        running_count += 1
-    
-    assert running_count > 0,"No instances in dataset"
-    
-    return running_clicks / running_count
+from typing import Tuple
 
 from tqdm import tqdm
 @torch.no_grad()
-def get_ious_at_click_benchmarks(
+def get_ious_and_clicks(
         sam,
         valid_dataset:SamDataset,
         nums_clicks:List[int],
         use_cls:bool,
         device:torch.device
-    )->List[float]:
+    )->List[Tuple[float,int]]:
     max_num_clicks = max(nums_clicks)
 
-    running_ious = [0] * len(nums_clicks)
-    running_count = 0
+    clicks = [] # list of (iou,num_clicks) tuples
 
     for batch in tqdm(valid_dataset):
         prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(batch,device)
@@ -154,10 +118,10 @@ def get_ious_at_click_benchmarks(
 
             if click_idx in nums_clicks:
                 iou_idx = nums_clicks.index(click_idx)
-                running_ious[iou_idx] += max_iou.cpu().item()
+                iou = max_iou.cpu().item()
+                clicks.append((iou,click_idx+1))
             prompt = get_next_interaction(binary_mask,best_det,prompt)
-        running_count += 1
     
-    assert running_count > 0,"No instances in dataset"
+    assert len(clicks) > 0,"No instances in dataset"
 
-    return [iou / running_count for iou in running_ious]
+    return clicks

@@ -43,6 +43,9 @@ class ModelConfig(YAMLWizard):
 
     size:str = "vit_h"
 
+    # try to find a better threshold for binarization (might help with gridiron artifacts)
+    binarize_dynamic:bool = False 
+
 @dataclass
 class TrainConfig(YAMLWizard):
     # use gradient descent or not?
@@ -77,7 +80,7 @@ class TrainConfig(YAMLWizard):
         "cls_loss": 1,
     })
 
-    benchmark_clicks:List[int] = field(default_factory=lambda: [1,2,5])
+    benchmark_clicks:List[int] = field(default_factory=lambda: [1,2,3,4])
 
     # use only losses for the cls tokens (disables loss for single-mask/multimask tokens)
     only_cls_loss:bool = True

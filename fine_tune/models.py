@@ -43,6 +43,8 @@ class MaskDecoderConfig:
 
     use_cls: bool=True
 
+    custom_hypers: bool=True
+
 #
 # Wrappers
 #
@@ -188,7 +190,7 @@ class WrappedImageEncoder(nn.Module):
         return flatten_state_dict(dicts)
 
 
-from .common import get_max_iou_masks
+from .binary_mask import binarize_dynamic,get_max_iou_masks
 from persam.persam_f import calculate_sigmoid_focal_loss,calculate_dice_loss
 
 class WrappedMaskDecoder(nn.Module):
@@ -217,9 +219,9 @@ class WrappedMaskDecoder(nn.Module):
         if self.use_cls:
             num_classes = cfg.data.num_classes
             assert num_classes is not None, "Must set num_classes before initializing the mask decoder"
-            self.mask_decoder.add_cls_token(num_classes, cfg.train.only_cls_loss)
+            self.mask_decoder.add_cls_token(num_classes, cfg.model.decoder.custom_hypers, cfg.train.only_cls_loss)
 
-            if self.cfg.train.warm_start:
+            if self.cfg.train.warm_start and cfg.model.decoder.custom_hypers:
                 # warm-start the cls tokens to match the single-mask token
                 self.mask_decoder.cls_mask_tokens.weight.data = self.mask_decoder.mask_tokens.weight.data[0].unsqueeze(0).repeat(num_classes,1)
                 # ditto for hypernetwork MLPs
@@ -238,7 +240,7 @@ class WrappedMaskDecoder(nn.Module):
         original_size,input_size = sizes
 
         upscaled_masks = self.predictor.model.postprocess_masks(low_res_masks,input_size,original_size).squeeze(0)
-        binary_masks = F.normalize(F.threshold(upscaled_masks, 0.0, 0))
+        binary_masks = upscaled_masks > 0 if self.cfg.model.binarize_dynamic else binarize_dynamic(upscaled_masks)
 
         max_idx = torch.argmax(iou_predictions)
 
@@ -343,7 +345,8 @@ class WrappedMaskDecoder(nn.Module):
             combined_params += list(self.lora_mask_decoder.get_parameters())
         if self.use_cls:
             for param_set in [self.mask_decoder.cls_mask_tokens,self.mask_decoder.cls_iou_token,self.mask_decoder.cls_hypernetworks_mlps,self.mask_decoder.cls_iou_prediction_head]:
-                combined_params += list(param_set.parameters())
+                if param_set is not None:
+                    combined_params += list(param_set.parameters())
         
         return combined_params
     
@@ -376,7 +379,6 @@ class WrappedSamModel(nn.Module):
         self.encoder = WrappedImageEncoder(self.predictor,cfg)
 
         self.cfg = cfg
-
     
     def get_trainable_parameters(self):
         return self.decoder.get_trainable_parameters() + self.encoder.get_trainable_parameters()
