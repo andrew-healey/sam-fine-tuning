@@ -3,7 +3,7 @@ from dataclass_wizard import YAMLWizard
 
 from .models import ImageEncoderConfig,MaskDecoderConfig
 
-from typing import List,Optional,Union,Dict
+from typing import List,Optional,Union,Dict,Literal
 
 @dataclass
 class DataConfig(YAMLWizard):
@@ -44,7 +44,7 @@ class ModelConfig(YAMLWizard):
     size:str = "vit_t"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
-    binarize_dynamic:Union[bool,str] = False
+    binarize_dynamic:Union[Literal["true"],Literal["false"],Literal["eval"]] = "true"
 
 @dataclass
 class TrainConfig(YAMLWizard):

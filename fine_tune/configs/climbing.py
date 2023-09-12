@@ -23,7 +23,7 @@ cfg = Config(
         ),
         decoder=MaskDecoderConfig(
             use_decoder_lora=False,
-            lora_r=8,
+            decoder_lora_r=8,
             use_cls=True,
             custom_hypers=True
         ),

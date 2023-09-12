@@ -6,3 +6,4 @@ icecream
 dataclass_wizard
 roboflow
 dotenv
+transformers

@@ -28,7 +28,7 @@ class ImageEncoderConfig:
 
     # use LoRa on the image encoder transformer?
     use_encoder_lora: bool=False
-    lora_r: int=4
+    encoder_lora_r: int=4
 
     # train the image encoder's patch embedding CNN?
     use_patch_embed: bool=False
@@ -39,7 +39,7 @@ class MaskDecoderConfig:
 
     # Add LoRA weights to the mask decoder?
     use_decoder_lora: bool=False
-    lora_r: int=4
+    decoder_lora_r: int=4
 
     use_cls: bool=True
 
@@ -76,7 +76,7 @@ class WrappedImageEncoder(nn.Module):
         
         if self.use_lora:
             assert cfg.model.size == "vit_t", "LoRA only works with MobileSAM for now"
-            self.lora = LoRA_Tiny_Image_Encoder(self.image_encoder, r=self.encoder_cfg.lora_r)
+            self.lora = LoRA_Tiny_Image_Encoder(self.image_encoder, r=self.encoder_cfg.encoder_lora_r)
         
         self.can_cache_embeddings = cfg.train.cache_embeddings and not self.use_lora
         if self.can_cache_embeddings:
@@ -214,7 +214,7 @@ class WrappedMaskDecoder(nn.Module):
         self.mask_decoder = predictor.model.mask_decoder
 
         if self.use_lora:
-            self.lora_mask_decoder = LoRA_Mask_Decoder(self.mask_decoder, r=self.decoder_cfg.lora_r)
+            self.lora_mask_decoder = LoRA_Mask_Decoder(self.mask_decoder, r=self.decoder_cfg.decoder_lora_r)
         
         if self.use_cls:
             num_classes = cfg.data.num_classes
@@ -241,8 +241,8 @@ class WrappedMaskDecoder(nn.Module):
 
         upscaled_masks = self.predictor.model.postprocess_masks(low_res_masks,input_size,original_size).squeeze(0)
 
-        should_binarize_dynamic = self.cfg.model.binarize_dynamic == True or (not self.training and self.cfg.model.binarize_dynamic == "eval")
-        binary_masks = upscaled_masks > 0 if self.cfg.model.binarize_dynamic else binarize_dynamic(upscaled_masks)
+        should_binarize_dynamic = self.cfg.model.binarize_dynamic == "true" or (not self.training and self.cfg.model.binarize_dynamic == "eval")
+        binary_masks = binarize_dynamic(upscaled_masks) if should_binarize_dynamic else upscaled_masks > 0
 
         max_idx = torch.argmax(iou_predictions)
 
