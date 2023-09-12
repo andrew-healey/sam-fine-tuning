@@ -37,5 +37,11 @@ COPY roboflow-train/train/bin/run_and_catch_error.py .
 COPY persam persam
 COPY fine_tune fine_tune
 
+# set COMMIT env var to the commit hash of the current commit
+ARG COMMIT
+# ensure COMMIT env var is set
+RUN test -n "$COMMIT"
+ENV COMMIT=$COMMIT
+
 ENV PYTHONPATH=/app/
 CMD [ "./run.sh", "fine_tune.aws_smart_poly_config"]

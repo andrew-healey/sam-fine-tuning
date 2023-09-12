@@ -49,15 +49,13 @@ from src.env import (
     DATASET_ID,
 )
 
-always_export = os.environ.get("ALWAYS_EXPORT",False) == "true"
-
 GCP_EXPORT_BUCKET = f"roboflow-{ENV}-models"
 
 from src.utils.cloud_utils import gcp_upload
 
 from .viz import show_confusion_matrix,plt_to_pil,clip_together_imgs,mask_to_img # configure headless matplotlib
 from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
-from .cfg import Config,DataConfig,ModelConfig,TrainConfig
+from .cfg import Config,DataConfig,ModelConfig,TrainConfig,MaskDecoderConfig,ImageEncoderConfig,WandbConfig
 from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
 from .datasets import get_class_counts
 from .common import SamDataset,to
@@ -71,6 +69,7 @@ import numpy as np
 
 from typing import List
 from dataclasses import asdict
+from transformers import HfArgumentParser
 
 import wandb
 
@@ -81,6 +80,9 @@ from random import randrange
 from glob import glob
 
 import matplotlib.pyplot as plt
+
+
+# wandb stuff
 
 class CustomSAMTrainer(AbstractMonitoredTrainer):
     def __init__(self,*args,
@@ -126,7 +128,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
     
     def load_torch_datasets(self):
 
-        assert self.cfg.data.points_per_mask != -1,"points_per_mask is not set"
+        assert type(self.cfg.data.points_per_mask) == list,"points_per_mask is not set"
 
         self.train_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
         self.valid_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_valid_dataset,max_prompts=self.cfg.data.valid_prompts)
@@ -152,41 +154,48 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         # TODO choose whether to use lora & patch embeddings based on # of instances in dataset
 
-        return Config(
-            data=DataConfig(
-                tasks=["point","box"],
-                # train_prompts=10_000,
-                valid_prompts=200,
-                points_per_mask=-1, # Will be changed later during load_datasets
-            ),
-            model=ModelConfig(
-                size="vit_t",
-                encoder=ImageEncoderConfig(
-                    use_patch_embed=False
-                ),
-                decoder=MaskDecoderConfig(
-                    use_lora=False,
-                ),
-            ),
-            train=TrainConfig(
-                initial_lr=2e-4,
-                cache_embeddings=True,
-                run_grad=True,
-                export_full_decoder=True,
-                max_steps=20_000,
-                max_epochs=3,
-            )
+        # load from cmd line
+        parser = HfArgumentParser((Config,DataConfig,ModelConfig,TrainConfig,MaskDecoderConfig,ImageEncoderConfig,WandbConfig))
+
+        cfg, data_cfg, model_cfg, train_cfg, mask_decoder_cfg, image_encoder_cfg, wandb_cfg = parser.parse_args_into_dataclasses()
+
+        model_cfg.decoder = mask_decoder_cfg
+        model_cfg.encoder = image_encoder_cfg
+
+        cfg.data = data_cfg
+        cfg.model = model_cfg
+        cfg.train = train_cfg
+        cfg.wandb = wandb_cfg
+
+        return cfg
+
+    def setup_wandb(self):
+        cfg = self.cfg
+        commit = os.environ.get("COMMIT",None)
+
+        if commit is None:
+            # get commit from git
+            import subprocess
+            commit = subprocess.check_output(["git", "describe", "--always"]).strip().decode()
+
+            # check if there's a local change
+            if len(subprocess.check_output(["git", "status", "--porcelain"])) > 0:
+                # warn that there's a local change
+                print("WARNING: Local changes detected. Consider committing these changes for reproducibility.")
+
+        wandb.login()
+        self.run = wandb.init(
+            project="sam-fine-tune-prod",
+            config=asdict(cfg),
+            tags=[commit],
+            name=cfg.wandb.name,
+            group=cfg.wandb.group,
         )
+
     
     def _train(self):
 
         cfg = self.cfg
-
-        wandb.login()
-        run = wandb.init(
-            project="sam-fine-tune-prod",
-            config=asdict(cfg)
-        )
 
         optimizer,scheduler = get_optimizer(cfg,self.sam)
 
@@ -397,6 +406,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
     
     def train(self):
 
+        self.setup_wandb()
+
         self.update_status("starting")
         self._train()
 
@@ -409,7 +420,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         # TODO figure out what specific metric to use for these ious
 
-        if always_export or results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"] and cls_miou > normal_miou:
+        if self.cfg.train.always_export or results["avg_recall"] > 0.75 and results["valid_cls_mask_loss"] < results["valid_normal_mask_loss"] and cls_miou > normal_miou:
             print("Exporting...")
             self.update_status("exporting")
             self.export()

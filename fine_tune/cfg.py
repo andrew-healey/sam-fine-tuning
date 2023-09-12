@@ -17,7 +17,7 @@ class DataConfig(YAMLWizard):
     num_classes: int = None
 
     valid_size:Optional[int] = None # images
-    valid_prompts:Optional[int] = None
+    valid_prompts:Optional[int] = 200
 
     use_masks:bool = True
 
@@ -41,7 +41,7 @@ class ModelConfig(YAMLWizard):
     encoder: ImageEncoderConfig = field(default_factory=ImageEncoderConfig)
     decoder: MaskDecoderConfig = field(default_factory=MaskDecoderConfig)
 
-    size:str = "vit_h"
+    size:str = "vit_t"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
     binarize_dynamic:Union[bool,str] = False
@@ -57,8 +57,8 @@ class TrainConfig(YAMLWizard):
     weight_decay:bool = 0.1
 
     warmup_steps:int = 500
-    max_steps:int = 50_000
-    max_epochs:int = 100
+    max_steps:int = 20_000
+    max_epochs:int = 10
 
     batch_size:int = 5 # currently, I use gradient accumulation for this--they do 256 images per batch.
 
@@ -100,8 +100,16 @@ class TrainConfig(YAMLWizard):
     export_full_decoder:bool = True
     export_full:bool = False
 
+    always_export:bool = True
+
+@dataclass
+class WandbConfig(YAMLWizard):
+    name:Optional[str] = None
+    group:Optional[str] = None
+
 @dataclass
 class Config(YAMLWizard):
     train: TrainConfig = field(default_factory=TrainConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
+    wandb: WandbConfig = field(default_factory=WandbConfig)

@@ -22,7 +22,7 @@ cfg = Config(
             use_patch_embed=False
         ),
         decoder=MaskDecoderConfig(
-            use_lora=False,
+            use_decoder_lora=False,
             lora_r=8,
             use_cls=True,
             custom_hypers=True

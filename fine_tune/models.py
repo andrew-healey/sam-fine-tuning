@@ -27,7 +27,7 @@ class ImageEncoderConfig:
     resize_before_cnn: bool=True
 
     # use LoRa on the image encoder transformer?
-    use_lora: bool=False
+    use_encoder_lora: bool=False
     lora_r: int=4
 
     # train the image encoder's patch embedding CNN?
@@ -38,7 +38,7 @@ class MaskDecoderConfig:
     ft: bool=False
 
     # Add LoRA weights to the mask decoder?
-    use_lora: bool=False
+    use_decoder_lora: bool=False
     lora_r: int=4
 
     use_cls: bool=True
@@ -68,7 +68,7 @@ class WrappedImageEncoder(nn.Module):
         self.encoder_cfg = cfg.model.encoder
 
         self.use_cnn = self.encoder_cfg.use_cnn
-        self.use_lora = self.encoder_cfg.use_lora
+        self.use_lora = self.encoder_cfg.use_encoder_lora
         self.use_patch_embed = self.encoder_cfg.use_patch_embed
 
         if self.use_cnn:
@@ -208,7 +208,7 @@ class WrappedMaskDecoder(nn.Module):
         self.decoder_cfg = cfg.model.decoder
 
         self.ft = self.decoder_cfg.ft
-        self.use_lora = self.decoder_cfg.use_lora
+        self.use_lora = self.decoder_cfg.use_decoder_lora
         self.use_cls = self.decoder_cfg.use_cls
 
         self.mask_decoder = predictor.model.mask_decoder
