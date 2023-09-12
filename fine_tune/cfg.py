@@ -17,7 +17,7 @@ class DataConfig(YAMLWizard):
     num_classes: int = None
 
     valid_size:Optional[int] = None # images
-    valid_prompts:Optional[int] = 500
+    valid_prompts:Optional[int] = 1_000
 
     use_masks:bool = True
 
