@@ -5,3 +5,4 @@ xxhash
 icecream
 dataclass_wizard
 roboflow
+dotenv

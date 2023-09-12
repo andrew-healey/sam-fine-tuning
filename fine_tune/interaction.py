@@ -116,8 +116,7 @@ def get_ious_and_clicks(
                 # get the most correct cls prediction
                 gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
 
-            if click_idx in nums_clicks:
-                iou_idx = nums_clicks.index(click_idx)
+            if click_idx+1 in nums_clicks:
                 iou = max_iou.cpu().item()
                 clicks.append((iou,click_idx+1))
             prompt = get_next_interaction(binary_mask,best_det,prompt)

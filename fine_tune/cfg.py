@@ -44,7 +44,7 @@ class ModelConfig(YAMLWizard):
     size:str = "vit_h"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
-    binarize_dynamic:bool = False 
+    binarize_dynamic:Union[bool,str] = False
 
 @dataclass
 class TrainConfig(YAMLWizard):

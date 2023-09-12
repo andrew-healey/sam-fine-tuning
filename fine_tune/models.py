@@ -240,6 +240,8 @@ class WrappedMaskDecoder(nn.Module):
         original_size,input_size = sizes
 
         upscaled_masks = self.predictor.model.postprocess_masks(low_res_masks,input_size,original_size).squeeze(0)
+
+        should_binarize_dynamic = self.cfg.model.binarize_dynamic == True or (not self.training and self.cfg.model.binarize_dynamic == "eval")
         binary_masks = upscaled_masks > 0 if self.cfg.model.binarize_dynamic else binarize_dynamic(upscaled_masks)
 
         max_idx = torch.argmax(iou_predictions)

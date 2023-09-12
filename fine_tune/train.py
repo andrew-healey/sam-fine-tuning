@@ -204,7 +204,6 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             self.sam.eval()
 
             self.evaluate()
-            self.get_iou_vs_clicks()
 
             # mark as train mode
             self.sam.train()
@@ -330,6 +329,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         confusion_matrix = plt_to_pil()
 
+        cls_miou,normal_miou =self.get_iou_vs_clicks()
+
         results = {
             "valid_loss": valid_loss,
 
@@ -341,10 +342,12 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
             "confusion_matrix": wandb.Image(confusion_matrix),
             "avg_recall": avg_recall.item(),
+
+            "cls_miou": cls_miou,
+            "normal_miou": normal_miou,
         }
 
         wandb.log(results)
-
         return results
     
     def get_iou_vs_clicks(self):
@@ -356,20 +359,28 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         normal_ious = [iou for iou,_ in normal_ious_and_clicks]
         normal_clicks = [click for _,click in normal_ious_and_clicks]
 
-        # graph
-        #clear 
-        plt.clf()
-        plt.plot(cls_clicks,cls_ious,label="cls")
-        plt.plot(normal_clicks,normal_ious,label="normal")
-        plt.legend()
-        plt.xlabel("Clicks")
-        plt.ylabel("IoU")
-        plt.title("IoU vs. Clicks")
+        def make_graph(clicks,ious,name):
+            # graph as heatmap
+            max_click_num = max(self.cfg.train.benchmark_clicks)
 
-        iou_vs_clicks = plt_to_pil()
+            num_y_bins = 10
 
+            hist_edges_x = np.arange(max_click_num+1) + 0.5
+            hist_edges_y = np.linspace(0,1,num_y_bins+1)
+            #clear 
+            plt.clf()
+            # binned ious
+            plt.hist2d(clicks, ious, bins=(hist_edges_x, hist_edges_y), cmap=plt.cm.Greys)
+            plt.xlabel("Clicks")
+            plt.ylabel("IoU")
+            plt.title(f"{name} IoU vs. Clicks")
+            plt.colorbar()
+
+            iou_vs_clicks = plt_to_pil()
+            return iou_vs_clicks
+        
         wandb.log({
-            "iou_vs_clicks": wandb.Image(iou_vs_clicks),
+            "iou_vs_clicks": wandb.Image(clip_together_imgs(make_graph(cls_clicks,cls_ious,"Cls"),make_graph(normal_clicks,normal_ious,"Normal")))
         })
 
         cls_click_one_miou = np.mean([iou for iou,click in cls_ious_and_clicks if click == 1])
@@ -393,7 +404,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         self.update_status("evaluating")
         results = self.evaluate()
 
-        cls_miou,normal_miou =self.get_iou_vs_clicks()
+        cls_miou = results["cls_miou"]
+        normal_miou = results["normal_miou"]
 
         # TODO figure out what specific metric to use for these ious
 
