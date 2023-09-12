@@ -17,7 +17,7 @@ class DataConfig(YAMLWizard):
     num_classes: int = None
 
     valid_size:Optional[int] = None # images
-    valid_prompts:Optional[int] = 200
+    valid_prompts:Optional[int] = 500
 
     use_masks:bool = True
 
@@ -44,7 +44,7 @@ class ModelConfig(YAMLWizard):
     size:str = "vit_t"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
-    binarize_dynamic:Union[Literal["true"],Literal["false"],Literal["eval"]] = "true"
+    binarize_dynamic:str = "true"
 
 @dataclass
 class TrainConfig(YAMLWizard):

@@ -15,3 +15,5 @@ runs/
 runs_new/
 
 .env
+
+nohup.out
