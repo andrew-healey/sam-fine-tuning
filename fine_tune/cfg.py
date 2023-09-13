@@ -47,7 +47,10 @@ class ModelConfig(YAMLWizard):
     size:str = "vit_t"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
-    binarize_dynamic:str = "eval"
+    binarize_dynamic:str = "false"
+
+    # resolution for onnx mask upscaling
+    out_res:int = 512
 
 @dataclass
 class TrainConfig(YAMLWizard):
@@ -60,7 +63,7 @@ class TrainConfig(YAMLWizard):
     weight_decay:float = 0.1
 
     warmup_steps:int = 500
-    max_steps:int = 20_000
+    max_steps:int = 10_000
     max_epochs:int = 10
 
     batch_size:int = 5 # currently, I use gradient accumulation for this--they do 256 images per batch.

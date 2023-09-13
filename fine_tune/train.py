@@ -58,7 +58,7 @@ from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
 from .cfg import Config,DataConfig,ModelConfig,TrainConfig,MaskDecoderConfig,ImageEncoderConfig,WandbConfig
 from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
 from .datasets import get_class_counts
-from .common import SamDataset,to
+from .common import SamDataset,to,set_seed
 from .binary_mask import get_max_iou_masks
 from .optimizer import get_optimizer
 from .interaction import get_ious_and_clicks
@@ -93,6 +93,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         dataset_id: str = DATASET_ID,
                  **kwargs):
         super().__init__(*args,**kwargs)
+
+        set_seed(0)
 
         self.cache_path = cache_path
         self.model_path = os.path.join(cache_path,"model")

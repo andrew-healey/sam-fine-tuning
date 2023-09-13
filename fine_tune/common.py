@@ -564,3 +564,9 @@ def to(a,device:torch.device):
         return type(a)(to(v,device) for v in a)
     else:
         return a
+
+import numpy as np
+def set_seed(seed:int):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
