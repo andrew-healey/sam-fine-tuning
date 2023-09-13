@@ -23,32 +23,20 @@ def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt
     gt_binary_mask = prompt.gt_masks[gt_mask_idx] if prompt.gt_masks is not None else prompt.gt_mask
 
     # bool-ify the masks
-    binary_mask = binary_mask > 0
-    gt_binary_mask = gt_binary_mask > 0
+    assert binary_mask.dtype == bool,"binary_mask should be bool"
+    # binary_mask = binary_mask > 0
+    assert gt_binary_mask.dtype == bool,"gt_binary_mask should be bool"
+    # gt_binary_mask = gt_binary_mask > 0
 
-    false_negatives = gt_binary_mask & ~binary_mask
-    false_positives = ~gt_binary_mask & binary_mask
+    false = gt_binary_mask ^ binary_mask
 
-    iou = (binary_mask & gt_binary_mask).sum() / (binary_mask | gt_binary_mask).sum()
-    if threshold is not None and iou >= threshold: return None
+    false_indices = np.argwhere(false)
+    if false_indices.shape[0] == 0: return None
 
-    # pick random next click
-    fn_indices  = np.argwhere(false_negatives)
-    fp_indices  = np.argwhere(false_positives)
-
-    # label fn_indices with 1, fp_indices with 0
-    fn_indices = np.concatenate([fn_indices,np.ones((fn_indices.shape[0],1),dtype=int)],axis=1)
-    fp_indices = np.concatenate([fp_indices,np.zeros((fp_indices.shape[0],1),dtype=int)],axis=1)
-
-    # concatenate indices
-    indices = np.concatenate([fn_indices,fp_indices],axis=0)
-
-    if indices.shape[0] == 0: return None
-
-    rand_idx = np.random.randint(indices.shape[0])
+    rand_idx = np.random.randint(false_indices.shape[0])
     
-    pt = indices[rand_idx,:2][::-1][None,...] # convert from (y,x) to (x,y)
-    label = indices[rand_idx,2][None,...]
+    pt = false_indices[rand_idx:rand_idx+1,::-1] # convert from (y,x) to (x,y)
+    label = gt_binary_mask[None,pt[0,1],pt[0,0]]
 
     # add to prompt
     new_point = np.concatenate([prompt.points,pt],axis=0) if prompt.points is not None else pt
@@ -124,6 +112,8 @@ def get_ious_and_clicks(
             if click_idx+1 in nums_clicks:
                 iou = max_iou.cpu().item()
                 clicks.append((iou,click_idx+1))
+            
+            if click_idx == max_num_clicks-1: break
             prompt = get_next_interaction(binary_mask,best_det,prompt)
     
     assert len(clicks) > 0,"No instances in dataset"

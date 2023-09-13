@@ -14,6 +14,8 @@ import xxhash
 import os
 import shutil
 
+from time import time
+
 #
 # Configs
 #
@@ -51,6 +53,7 @@ class MaskDecoderConfig:
 
 from .ladder_cnn import CNN_SAM
 from .samed import LoRA_Tiny_Image_Encoder,LoRA_Mask_Decoder
+from .sam_hq_loss_mask import loss_masks
 
 from .cfg import Config
 
@@ -103,6 +106,7 @@ class WrappedImageEncoder(nn.Module):
         if self.can_cache_embeddings:
             hash = self.hash(imgs[0])
             if os.path.exists(f"{self.cache_dir}/{hash}.pt"):
+                # print("Loading from cache")
                 return torch.load(f"{self.cache_dir}/{hash}.pt")
         
         input_image, input_image_torch, input_image_resized = imgs
@@ -248,7 +252,27 @@ class WrappedMaskDecoder(nn.Module):
 
         return \
             (upscaled_masks,binary_masks), max_idx
+        
+    def calculate_mask_loss(self,pred_masks,upscaled_masks,gt_masks,losses):
+        num_masks = pred_masks.shape[0]
+        assert num_masks == gt_masks.shape[0]
+        # print("pred_masks",pred_masks.shape,"upscaled_masks",upscaled_masks.shape,"gt_masks",gt_masks.shape)
+        if self.cfg.train.sam_hq_loss:
+            focal,dice = loss_masks(pred_masks,gt_masks,num_masks)
+            losses["focal"] = focal
+            losses["dice"] = dice
+
+        else:
+            flat_pred_mask = upscaled_masks.view(num_masks,-1)
+            flat_gt_mask = gt_masks.view(num_masks,-1)
+
+            losses["focal"] = calculate_sigmoid_focal_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
+            losses["dice"] = calculate_dice_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
+
+        losses["mask"] = losses["focal"] + losses["dice"]
+
     
+    # TODO run focal and dice loss on batch of masks, rather than running on each mask and averaging
     def loss(self,
              low_res_masks,iou_predictions, cls_low_res_masks,cls_iou_predictions,
              gt_info,gt_cls_info, sizes,prompt
@@ -274,37 +298,36 @@ class WrappedMaskDecoder(nn.Module):
 
             # normal loss
             if calculate_normal_loss:
-
                 assert low_res_masks is not None,"low_res_masks is None"
                 assert iou_predictions is not None,"iou_predictions is None"
 
                 (upscaled_masks,binary_masks), max_idx = self.postprocess(low_res_masks,iou_predictions, sizes)
 
-                gt_binary_mask, _, max_iou, *_ = get_max_iou_masks(gt_masks,binary_masks[None,max_idx,...])
+                gt_binary_mask, _, max_iou, best_pred_idx,_ = get_max_iou_masks(gt_masks,binary_masks[None,max_idx,...])
 
                 # mse loss
-                losses["mse"] = F.mse_loss(max_iou, iou_predictions[0,max_idx])
+                losses["mse"] = F.mse_loss(max_iou, iou_predictions[0,best_pred_idx])
 
                 if prompt.mask_loss:
-                    # flatten masks
-                    flat_pred_mask = upscaled_masks[max_idx].view(1,-1)
-                    flat_gt_mask = gt_binary_mask.view(1,-1)
-
-                    losses["focal"] = calculate_sigmoid_focal_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
-                    losses["dice"] = calculate_dice_loss(flat_pred_mask,flat_gt_mask,should_sigmoid=True)
-                    losses["mask"] = losses["focal"] + losses["dice"]
+                    pred_mask = low_res_masks[:,best_pred_idx,None]
+                    # print("upscaled_masks",upscaled_masks.shape)
+                    upscaled_mask = upscaled_masks[best_pred_idx,None]
+                    self.calculate_mask_loss(pred_mask,upscaled_mask,gt_binary_mask[None,None],losses)
 
                 add_losses(losses)
             
             # cls loss
             if use_cls_loss:
+                before_cls = time()
                 cls_losses = {}
 
                 gt_cls = gt_cls_info["gt_cls"]
                 gt_cls_logits = gt_cls_info["gt_cls_one_hot"]
 
+                before_postprocess = time()
                 (cls_upscaled_masks,cls_binary_masks), max_cls_idx = self.postprocess(cls_low_res_masks,cls_iou_predictions, sizes)
 
+                before_max_iou = time()
                 inputs = [gt_masks,cls_binary_masks,gt_cls,torch.arange(self.cfg.data.num_classes,device=gt_masks.device)]
                 cls_gt_binary_mask, cls_binary_mask, cls_max_iou, best_cls, best_det = get_max_iou_masks(*inputs)
                 cls_pred_iou = F.sigmoid(cls_iou_predictions[0,best_cls])
@@ -313,22 +336,24 @@ class WrappedMaskDecoder(nn.Module):
 
                 # simultaneously treat cls iou predictions as probabilities and IoU logits.
                 # I think this is OK because cross-entropy loss is bias-independent.
+                before_logit_losses = time()
                 cls_losses["ce"] = F.cross_entropy(cls_iou_predictions[0],gt_cls_logits[best_det])
                 cls_losses["mse"] = F.mse_loss(cls_max_iou, cls_pred_iou)
 
                 if prompt.mask_loss:
-                    cls_flat_pred_mask = cls_upscaled_masks[best_cls].view(1,-1)
-                    cls_flat_gt_mask = cls_gt_binary_mask.view(1,-1)
+                    before_mask_loss = time()
 
-                    cls_losses["focal"] = calculate_sigmoid_focal_loss(cls_flat_pred_mask,cls_flat_gt_mask,should_sigmoid=True)
-                    cls_losses["dice"] = calculate_dice_loss(cls_flat_pred_mask,cls_flat_gt_mask,should_sigmoid=True)
+                    cls_pred_mask = cls_low_res_masks[:,best_cls,None]
+                    # print("cls_upscaled_masks",cls_upscaled_masks.shape)
+                    cls_upscaled_mask = cls_upscaled_masks[best_cls,None]
+                    self.calculate_mask_loss(cls_pred_mask,cls_upscaled_mask,cls_gt_binary_mask[None,None],cls_losses)
 
-                    cls_losses["mask"] = cls_losses["focal"] + cls_losses["dice"]
                 
                 add_losses(cls_losses)
 
                 for k,v in cls_losses.items():
                     losses[f"cls_{k}"] = v
+                
                 
             loss = torch.tensor(0,dtype=torch.float32,device=gt_masks.device)
             if use_normal_loss:

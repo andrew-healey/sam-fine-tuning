@@ -82,6 +82,8 @@ from glob import glob
 
 import matplotlib.pyplot as plt
 
+# for benchmarking
+from time import time
 
 # wandb stuff
 
@@ -138,13 +140,12 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         # try to fix training imbalances
 
         min_prompts_per_cls = 500
-        max_points_per_mask = 10
         
         # for all classes with < min_prompts_per_cls, give them a multiplier to get them up to min_prompts_per_cls
         cls_multipliers = np.ones(len(self.sv_train_dataset.classes),dtype=np.int32)
         for cls,count in enumerate(self.cls_counts):
             if count < min_prompts_per_cls and count > 0:
-                cls_multipliers[cls] = min(max_points_per_mask,min_prompts_per_cls // count)
+                cls_multipliers[cls] = min(self.cfg.data.max_points_per_mask,min_prompts_per_cls // count)
         
         print("cls counts",self.cls_counts)
         print("points per mask",cls_multipliers)
@@ -226,19 +227,26 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             self.sam.train()
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 
+                before_data = time()
+
                 with torch.no_grad():
                     prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(self.train_dataset[idx],self.device)
+
 
                 use_cls = choice(use_cls_choices)
                 
                 for ref_step in range(cfg.train.num_refinement_steps+1):
+
+                    before_encoder = time()
                     encoder_output = self.sam.encoder.get_decoder_input(imgs,prompt)
+                    before_decoder = time()
                     pred = self.sam.decoder(**prompt_input,**encoder_output)
 
                     #
                     # WandB
                     #
                     
+                    before_loss = time()
                     loss,loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
 
                     loss_dict = {k:v.item() for k,v in loss_dict.items()}
@@ -263,6 +271,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
                     accumulated_loss += loss
                     if curr_iters % cfg.train.batch_size == 0:
+                        before_backward = time()
                         optimizer.zero_grad()
                         accumulated_loss /= torch.tensor(cfg.train.batch_size,dtype=torch.float32)
                         accumulated_loss.backward()
@@ -273,26 +282,29 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
                     if ref_step < cfg.train.num_refinement_steps:
                         
+                        gt_masks = gt_info["masks"]
                         low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions=pred
 
+                        before_masks = time()
                         if use_cls:
                             (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
 
                             # get the most correct cls prediction
-                            gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
+                            gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(self.sam.cfg.data.num_classes).to(self.device))
                         else:
                             (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
 
                             # get the most correct cls prediction
                             gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
 
-
+                        before_next = time()
                         prompt = get_next_interaction(binary_mask,best_det,prompt)
 
                         prompt_input,gt_masks = to(self.train_dataset.prompt_to_tensors(prompt,sizes),self.device)
                         gt_info["masks"] = gt_masks
 
                         gt_cls_info = to(self.train_dataset.cls_to_tensors(prompt),self.device)
+
 
 
             curr_epoch += 1
@@ -334,7 +346,6 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                     running_counts[k] = running_counts.get(k,0) + 1
                 
                 running_loss += losses["cls_loss"].item()
-                running_count += 1
 
                 # get pred gt mask
                 (_,binary_masks), max_idx = self.sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
@@ -353,6 +364,8 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
                     pred_classes.append(pred_cls)
                     gt_classes.append(best_cls)
+                
+                running_count += 1
 
         valid_mask_loss = running_losses["mask"]/running_counts["mask"]
         valid_cls_mask_loss = running_losses["cls_mask"]/running_counts["cls_mask"]
@@ -465,3 +478,6 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             print("Not exporting.")
         
         print("Done!")
+        # exit
+        import sys
+        sys.exit(0)

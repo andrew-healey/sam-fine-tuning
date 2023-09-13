@@ -28,6 +28,9 @@ class DataConfig(YAMLWizard):
     tasks:List[str] = field(default_factory=lambda: ["point","box"])
 
     points_per_mask:int = 1
+    # for automatic rebalancing, how much can we upsample?
+    max_points_per_mask:int = 10
+
     points_per_side:int = 20
     points_per_img:int = 50
 
@@ -44,7 +47,7 @@ class ModelConfig(YAMLWizard):
     size:str = "vit_t"
 
     # try to find a better threshold for binarization (might help with gridiron artifacts)
-    binarize_dynamic:str = "true"
+    binarize_dynamic:str = "eval"
 
 @dataclass
 class TrainConfig(YAMLWizard):
@@ -53,8 +56,8 @@ class TrainConfig(YAMLWizard):
 
 
     # Optimizer
-    initial_lr:bool = 2e-4
-    weight_decay:bool = 0.1
+    initial_lr:float = 2e-4
+    weight_decay:float = 0.1
 
     warmup_steps:int = 500
     max_steps:int = 20_000
@@ -84,6 +87,8 @@ class TrainConfig(YAMLWizard):
 
     # use only losses for the cls tokens (disables loss for single-mask/multimask tokens)
     only_cls_loss:bool = True
+
+    sam_hq_loss:bool = False
 
     # add multi refinement steps? (i.e. refine the mask with corrective clicks multiple times)
     num_refinement_steps:int = 0
