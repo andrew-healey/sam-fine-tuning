@@ -85,7 +85,7 @@ class TrainConfig(YAMLWizard):
     # use only losses for the cls tokens (disables loss for single-mask/multimask tokens)
     only_cls_loss:bool = True
 
-    # add multi refinement steps? (i.e. refine the mask multiple times)
+    # add multi refinement steps? (i.e. refine the mask with corrective clicks multiple times)
     num_refinement_steps:int = 0
 
     # cache embeddings for faster training?

@@ -63,6 +63,7 @@ from .binary_mask import get_max_iou_masks
 from .optimizer import get_optimizer
 from .interaction import get_ious_and_clicks
 from .export import export
+from .interaction import get_next_interaction
 
 
 import numpy as np
@@ -76,7 +77,7 @@ import wandb
 from tqdm import tqdm
 from numpy.random import permutation
 import torch
-from random import randrange
+from random import randrange,choice
 from glob import glob
 
 import matplotlib.pyplot as plt
@@ -214,51 +215,85 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
             self.evaluate()
 
+            # sometimes use cls masks for interactive segmentation, sometimes not
+            use_cls_choices = [False]
+            if cfg.model.decoder.use_cls:
+                use_cls_choices.append(True)
+                if cfg.train.only_cls_loss:
+                    use_cls_choices = [True]
+
             # mark as train mode
             self.sam.train()
             for i,idx in enumerate(tqdm(permutation(len(self.train_dataset)))):
 
                 with torch.no_grad():
                     prompt_input, gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(self.train_dataset[idx],self.device)
+
+                use_cls = choice(use_cls_choices)
                 
-                encoder_output = self.sam.encoder.get_decoder_input(imgs,prompt)
-                pred = self.sam.decoder(**prompt_input,**encoder_output)
+                for ref_step in range(cfg.train.num_refinement_steps+1):
+                    encoder_output = self.sam.encoder.get_decoder_input(imgs,prompt)
+                    pred = self.sam.decoder(**prompt_input,**encoder_output)
 
-                #
-                # WandB
-                #
-                
-                loss,loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
+                    #
+                    # WandB
+                    #
+                    
+                    loss,loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
 
-                loss_dict = {k:v.item() for k,v in loss_dict.items()}
-                wandb.log(loss_dict)
+                    loss_dict = {k:v.item() for k,v in loss_dict.items()}
+                    wandb.log(loss_dict)
 
-                #
-                # Logging
-                #
+                    #
+                    # Logging
+                    #
 
-                recent_losses += [loss_dict["cls_loss"]]
-                recent_losses = recent_losses[-cfg.train.log_period:]
+                    recent_losses += [loss_dict["cls_loss"]]
+                    recent_losses = recent_losses[-cfg.train.log_period:]
 
-                if curr_iters % cfg.train.eval_period == 0:
-                    pass
+                    if curr_iters % cfg.train.eval_period == 0:
+                        pass
 
-                if curr_iters % cfg.train.log_period == 0:
-                    print(f"Loss: {sum(recent_losses)/len(recent_losses)}")
+                    if curr_iters % cfg.train.log_period == 0:
+                        print(f"Loss: {sum(recent_losses)/len(recent_losses)}")
 
-                curr_iters += 1
+                    curr_iters += 1
 
-                if not cfg.train.run_grad: continue
+                    if not cfg.train.run_grad: continue
 
-                accumulated_loss += loss
-                if curr_iters % cfg.train.batch_size == 0:
-                    optimizer.zero_grad()
-                    accumulated_loss /= torch.tensor(cfg.train.batch_size,dtype=torch.float32)
-                    accumulated_loss.backward()
-                    optimizer.step()
-                    accumulated_loss = 0
-                
-                scheduler.step()
+                    accumulated_loss += loss
+                    if curr_iters % cfg.train.batch_size == 0:
+                        optimizer.zero_grad()
+                        accumulated_loss /= torch.tensor(cfg.train.batch_size,dtype=torch.float32)
+                        accumulated_loss.backward()
+                        optimizer.step()
+                        accumulated_loss = 0
+                    
+                    scheduler.step()
+
+                    if ref_step < cfg.train.num_refinement_steps:
+                        
+                        low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions=pred
+
+                        if use_cls:
+                            (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
+
+                            # get the most correct cls prediction
+                            gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
+                        else:
+                            (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
+
+                            # get the most correct cls prediction
+                            gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
+
+
+                        prompt = get_next_interaction(binary_mask,best_det,prompt)
+
+                        prompt_input,gt_masks = to(self.train_dataset.prompt_to_tensors(prompt,sizes),self.device)
+                        gt_info["masks"] = gt_masks
+
+                        gt_cls_info = to(self.train_dataset.cls_to_tensors(prompt),self.device)
+
 
             curr_epoch += 1
     

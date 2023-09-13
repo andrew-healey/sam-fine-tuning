@@ -25,4 +25,12 @@ do
     python -m fine_tune.aws_smart_poly_config --name 4_lr --initial_lr=0.0004 --group lrs
     python -m fine_tune.aws_smart_poly_config --name 8_lr --initial_lr=0.0008 --group lrs
 
+    python -m fine_tune.aws_smart_poly_config --name embed --use_patch_embed --group patch_embed
+    python -m fine_tune.aws_smart_poly_config --name no_embed --group patch_embed
+
+    python -m fine_tune.aws_smart_poly_config --name 0_clicks --num_refinement_steps=0 --group clicks
+    python -m fine_tune.aws_smart_poly_config --name 1_refine --num_refinement_steps=1 --group clicks
+    python -m fine_tune.aws_smart_poly_config --name 2_refine --num_refinement_steps=2 --group clicks
+    python -m fine_tune.aws_smart_poly_config --name 3_refine --num_refinement_steps=3 --group clicks
+
 done

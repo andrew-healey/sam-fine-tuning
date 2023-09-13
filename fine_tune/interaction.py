@@ -43,6 +43,8 @@ def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt
     # concatenate indices
     indices = np.concatenate([fn_indices,fp_indices],axis=0)
 
+    if indices.shape[0] == 0: return None
+
     rand_idx = np.random.randint(indices.shape[0])
     
     pt = indices[rand_idx,:2][::-1][None,...] # convert from (y,x) to (x,y)
@@ -100,21 +102,24 @@ def get_ious_and_clicks(
         encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
 
         for click_idx in range(max_num_clicks):
-            prompt_input,gt_masks = to(valid_dataset.prompt_to_tensors(prompt,sizes),device)
-            gt_cls_info = to(valid_dataset.cls_to_tensors(prompt),device)
 
-            low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
+            # only simulate a re-computation if the mask is incomplete
+            if prompt is not None:
+                prompt_input,gt_masks = to(valid_dataset.prompt_to_tensors(prompt,sizes),device)
+                gt_cls_info = to(valid_dataset.cls_to_tensors(prompt),device)
 
-            if use_cls:
-                (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
+                low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
 
-                # get the most correct cls prediction
-                gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
-            else:
-                (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
+                if use_cls:
+                    (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
 
-                # get the most correct cls prediction
-                gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
+                    # get the most correct cls prediction
+                    gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
+                else:
+                    (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
+
+                    # get the most correct cls prediction
+                    gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
 
             if click_idx+1 in nums_clicks:
                 iou = max_iou.cpu().item()

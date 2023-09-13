@@ -1,0 +1,6 @@
+[
+    {
+      "origin": ["https://localhost.roboflow.one","https://app.roboflow.one"],
+      "method": ["GET"],
+    }
+  ]

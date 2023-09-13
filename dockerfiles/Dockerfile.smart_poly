@@ -12,7 +12,7 @@ RUN aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
 RUN aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
 RUN aws configure set default.region $AWS_DEFAULT_REGION
 
-COPy requirements.roboflow-train.txt .
+COPY requirements.roboflow-train.txt .
 # COPY roboflow-train/train/requirements.txt requirements.roboflow-train.txt
 COPY roboflow-train/train/src src
 RUN pip install -r requirements.roboflow-train.txt
@@ -38,10 +38,10 @@ COPY persam persam
 COPY fine_tune fine_tune
 
 # set COMMIT env var to the commit hash of the current commit
-ARG COMMIT
+ARG COMMITHASH
 # ensure COMMIT env var is set
+ENV COMMIT=$COMMITHASH
 RUN test -n "$COMMIT"
-ENV COMMIT=$COMMIT
 
 ENV PYTHONPATH=/app/
 CMD [ "./run.sh", "fine_tune.aws_smart_poly_config"]
