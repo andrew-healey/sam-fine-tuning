@@ -58,9 +58,8 @@ class TrainConfig(YAMLWizard):
     # use gradient descent or not?
     run_grad:bool = True
 
-
     # Optimizer
-    initial_lr:float = 2e-4
+    initial_lr:float = 8e-4
     weight_decay:float = 0.1
 
     warmup_steps:int = 500
