@@ -63,6 +63,7 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
 
     check_for_overlap(train_dataset,valid_dataset)
 
+    cfg.classes = train_dataset.classes
     cfg.num_classes = len(train_dataset.classes)
 
     return train_dataset,valid_dataset

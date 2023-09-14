@@ -2,6 +2,7 @@ from .cfg import Config
 from .models import WrappedMaskDecoder,WrappedSamModel
 
 import torch
+import json
 
 import os
 def export(
@@ -24,6 +25,11 @@ def export(
         
         # export trainable state dict
         torch.save(sam.get_trainable_state_dict(),os.path.join(dir,"trainable.pt"))
+
+        # save class list to dir/classes.txt
+        with open(os.path.join(dir,"classes.json"),"w") as f:
+            classes = cfg.data.classes
+            json.dump(classes,f)
 
         # export onnx
         onnx_export(dir,cfg,sam,device)

@@ -14,7 +14,8 @@ class DataConfig(YAMLWizard):
     train_prompts:Optional[int] = None
 
     # number of classes in the dataset - must be set before loading your models.
-    num_classes: int = None
+    num_classes: Optional[int] = None
+    classes:Optional[List[str]] = None
 
     valid_size:Optional[int] = None # images
     valid_prompts:Optional[int] = 1_000

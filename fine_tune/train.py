@@ -447,6 +447,11 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         return cls_click_one_miou,normal_click_one_miou
     
+    def update_status(self, status):
+        super().update_status(status)
+        # upload status to GCP
+
+    
     def export(self):
         export(self.model_path,self.cfg,self.sam,self.device)
 
