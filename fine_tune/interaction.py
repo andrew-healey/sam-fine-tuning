@@ -16,7 +16,7 @@ from dataclasses import replace
 from typing import Optional,List
 import numpy as np
 
-def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt,threshold:Optional[float]=None)->Prompt:
+def get_next_interaction(pred_mask:torch.Tensor,binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt,threshold:Optional[float]=None)->Prompt:
 
     binary_mask = binary_mask.detach().cpu().numpy()
 
@@ -42,11 +42,13 @@ def get_next_interaction(binary_mask:torch.Tensor,gt_mask_idx: int,prompt:Prompt
     new_point = np.concatenate([prompt.points,pt],axis=0) if prompt.points is not None else pt
     new_label = np.concatenate([prompt.labels,label],axis=0).astype(bool) if prompt.labels is not None else label.astype(bool)
 
-    new_mask = gt_binary_mask
+    new_gt_mask = gt_binary_mask
 
     new_cls = prompt.gt_clss[gt_mask_idx] if prompt.gt_clss is not None else prompt.gt_cls
 
-    ret = replace(prompt,points=new_point,labels=new_label,gt_mask=new_mask,gt_cls=new_cls)
+    new_mask = pred_mask.detach().cpu().numpy()
+
+    ret = replace(prompt,points=new_point,labels=new_label,gt_mask=new_gt_mask,gt_cls=new_cls,mask=new_mask)
     ret.gt_masks = ret.gt_clss = None
 
     return ret
@@ -98,23 +100,31 @@ def get_ious_and_clicks(
 
                 low_res_masks,iou_predictions,cls_low_res_masks,cls_iou_predictions = sam.decoder(**prompt_input,**encoder_output)
 
+
                 if use_cls:
+                    assert len(cls_low_res_masks) == 1,"cls_low_res_masks should be a list of length 1"
+                    assert len(cls_low_res_masks.shape)==4,"cls_low_res_masks should have shape (1,num_classes,H,W)"
+
                     (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
 
                     # get the most correct cls prediction
                     gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(sam.cfg.data.num_classes).to(device))
+                    pred_mask = cls_low_res_masks[0,best_cls]
                 else:
+                    assert len(low_res_masks) == 1,"low_res_masks should be a list of length 1"
+                    assert len(low_res_masks.shape)==4,"low_res_masks should have shape (1,num_masks,H,W)"
                     (upscaled_masks,binary_masks), max_idx = sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
 
                     # get the most correct cls prediction
                     gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
+                    pred_mask = low_res_masks[0,best_pred]
 
             if click_idx+1 in nums_clicks:
                 iou = max_iou.cpu().item()
                 clicks.append((iou,click_idx+1))
             
             if click_idx == max_num_clicks-1: break
-            prompt = get_next_interaction(binary_mask,best_det,prompt)
+            prompt = get_next_interaction(pred_mask,binary_mask,best_det,prompt)
     
     assert len(clicks) > 0,"No instances in dataset"
 

@@ -36,7 +36,7 @@ class Prompt:
     points: ndarray = None
     labels: ndarray = None
     box: Box = None
-    mask: BoolMask = None # TODO: also allow FloatMask
+    mask: Union[BoolMask,FloatMask] = None # TODO: also allow FloatMask
 
     gt_mask: BoolMask = None
     gt_masks: BoolMask = None
@@ -67,19 +67,11 @@ class Prompt:
 
         if self.mask is not None:
             assert len(self.mask.shape) == 2,f"mask must have shape (H,W), not {self.mask.shape}"
-            assert self.mask.dtype == bool,f"mask must have dtype bool, not {self.mask.dtype}"
+            assert self.mask.dtype == bool or self.mask.dtype == np.float32,f"mask must have dtype bool or float, not {self.mask.dtype}"
 
         assert (self.gt_mask is None) != (self.gt_masks is None),"Prompt must have exactly one of gt_mask or gt_masks"
-
-        if self.gt_cls is not None or self.gt_clss is not None:
-            assert (self.gt_mask is None) == (self.gt_cls is None),"Prompt must have exactly one of gt_mask or gt_cls"
-            assert (self.gt_masks is None) == (self.gt_clss is None),"Prompt must have exactly one of gt_masks or gt_clss"
-
-
-from torch import Tensor
-def make_refinement_prompt(pred_mask: Tensor, gt_binary_mask: Tensor):
-    return Prompt(
-        mask=np.array(pred_mask.cpu().detach() > 0),
-        gt_mask=np.array(gt_binary_mask.cpu().detach() > 0),
-        multimask=False
-    )
+    
+        if self.gt_cls is not None:
+            assert self.gt_mask is not None,"Prompt must have gt_mask if gt_cls is not None"
+        if self.gt_clss is not None:
+            assert self.gt_masks is not None,"Prompt must have gt_masks if gt_clss is not None"
