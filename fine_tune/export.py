@@ -52,7 +52,13 @@ def onnx_export(dir:str,cfg:Config,sam:WrappedSamModel,device:torch.device):
 
     onnx_model_path = f"{dir}/with_classes.onnx"
 
-    onnx_model = SamOnnxModel(og_sam, return_single_mask=True,out_res=cfg.model.out_res)
+    onnx_model = SamOnnxModel(
+         og_sam,
+         return_single_mask=True,
+         out_res=cfg.model.out_res,
+         use_cls_token=True,
+         use_normal_token=False,
+    )
 
     dynamic_axes = {
         "point_coords": {1: "num_points"},
