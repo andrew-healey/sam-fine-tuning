@@ -32,7 +32,14 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
         force_masks=cfg.use_masks
     )
 
-    if cfg.create_valid:
+    if not cfg.create_valid:
+        valid_dataset = sv.DetectionDataset.from_coco(
+            images_directory_path=f"{dataset_location}/valid",
+            annotations_path=f"{dataset_location}/valid/_annotations.coco.json",
+            force_masks=cfg.use_masks
+        )
+
+    if cfg.create_valid or len(valid_dataset.images) == 0:
         # split the training set into train/valid
         train_dataset,valid_dataset = train_dataset.split(0.8)
 
@@ -42,13 +49,6 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
     if cfg.cls_ids is not None:
         print("Selecting classes",[train_dataset.classes[i] for i in cfg.cls_ids])
         train_dataset = extract_classes_from_dataset(train_dataset,cfg.cls_ids)
-
-    if not cfg.create_valid:
-        valid_dataset = sv.DetectionDataset.from_coco(
-            images_directory_path=f"{dataset_location}/valid",
-            annotations_path=f"{dataset_location}/valid/_annotations.coco.json",
-            force_masks=cfg.use_masks
-        )
 
     if cfg.valid_size is not None:
         valid_dataset = shrink_dataset_to_size(valid_dataset,cfg.valid_size)
@@ -201,7 +201,11 @@ def download_raw_dataset(dataset_id:str,save_dir="dataset"):
 
         for box in boxes:
             coco_annot = {}
-            coco_annot["bbox"] = [box["x"],box["y"],box["width"],box["height"]]
+            x = box["x"]
+            y = box["y"]
+            width = box["width"]
+            height = box["height"]
+            coco_annot["bbox"] = [x-width/2,y-height/2,width,height]
             coco_annot["bbox"] = [float(x) for x in coco_annot["bbox"]]
 
             if "points" in box:

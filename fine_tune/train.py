@@ -53,7 +53,7 @@ GCP_EXPORT_BUCKET = f"roboflow-{ENV}-models"
 
 from src.utils.cloud_utils import gcp_upload
 
-from .viz import show_confusion_matrix,plt_to_pil,clip_together_imgs,mask_to_img # configure headless matplotlib
+from .viz import show_confusion_matrix,plt_to_pil,clip_together_imgs,mask_to_img,render_prompt # configure headless matplotlib
 from .models import ImageEncoderConfig,MaskDecoderConfig,WrappedSamModel
 from .cfg import Config,DataConfig,ModelConfig,TrainConfig,MaskDecoderConfig,ImageEncoderConfig,WandbConfig
 from .load_datasets import load_datasets,prepare_torch_dataset,download_raw_dataset
@@ -65,6 +65,7 @@ from .interaction import get_ious_and_clicks
 from .export import export
 from .interaction import get_next_interaction
 
+from time import sleep
 
 import numpy as np
 
@@ -79,6 +80,8 @@ from numpy.random import permutation
 import torch
 from random import randrange,choice
 from glob import glob
+
+import cv2
 
 import matplotlib.pyplot as plt
 
@@ -118,6 +121,9 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         self.sam = WrappedSamModel(self.cfg).to(self.device)
 
+        # dry run export (ie no uploading to AWS)
+        self.export(dry_run=True)
+
         self.load_torch_datasets()
     
     def load_datasets(self):
@@ -137,6 +143,16 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
         self.train_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_train_dataset,max_prompts=self.cfg.data.train_prompts)
         self.valid_dataset = prepare_torch_dataset(self.sam.predictor,self.cfg,self.sv_valid_dataset,max_prompts=self.cfg.data.valid_prompts)
+
+        # while True:
+
+        #     rand_img_name,rand_prompt = choice(self.train_dataset.prompts)
+        #     rand_img = self.sv_train_dataset.images[rand_img_name]
+
+        #     # save rand_img and rand_prompt to seqs/demo.png
+        #     render_prompt(rand_img,rand_prompt,self.sv_train_dataset,self.sam.predictor).save("seqs/demo.png")
+        #     print("Rendered")
+        #     sleep(2)
     
     def get_points_per_mask(self)->List[int]:
         # try to fix training imbalances
@@ -217,6 +233,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             self.sam.eval()
 
             self.evaluate()
+            print("Evaluated")
 
             # sometimes use cls masks for interactive segmentation, sometimes not
             use_cls_choices = [False]
@@ -252,7 +269,9 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
                     loss,loss_dict = self.sam.decoder.loss(*pred, gt_info,gt_cls_info, sizes,prompt)
 
                     loss_dict = {k:v.item() for k,v in loss_dict.items()}
-                    wandb.log(loss_dict)
+
+                    if curr_iters % cfg.train.wandb_log_period == 0:
+                        wandb.log(loss_dict,step=curr_iters)
 
                     #
                     # Logging
@@ -289,18 +308,25 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
 
                         before_masks = time()
                         if use_cls:
+                            assert len(cls_low_res_masks) == 1,"cls_low_res_masks should be a list of length 1"
+                            assert len(cls_low_res_masks.shape)==4,"cls_low_res_masks should have shape (1,num_classes,H,W)"
+
                             (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(cls_low_res_masks,cls_iou_predictions,sizes)
 
                             # get the most correct cls prediction
                             gt_binary_mask, binary_mask, max_iou, best_cls, best_det = get_max_iou_masks(gt_masks,binary_masks,gt_cls_info["gt_cls"],torch.arange(self.sam.cfg.data.num_classes).to(self.device))
+                            pred_mask = cls_low_res_masks[0,best_cls]
                         else:
+                            assert len(low_res_masks) == 1,"low_res_masks should be a list of length 1"
+                            assert len(low_res_masks.shape)==4,"low_res_masks should have shape (1,num_masks,H,W)"
                             (upscaled_masks,binary_masks), max_idx = self.sam.decoder.postprocess(low_res_masks,iou_predictions,sizes)
 
                             # get the most correct cls prediction
                             gt_binary_mask, binary_mask, max_iou, best_pred, best_det = get_max_iou_masks(gt_masks,binary_masks,None,None)
+                            pred_mask = low_res_masks[0,best_pred]
 
                         before_next = time()
-                        prompt = get_next_interaction(binary_mask,best_det,prompt)
+                        prompt = get_next_interaction(pred_mask,binary_mask,best_det,prompt)
 
                         prompt_input,gt_masks = to(self.train_dataset.prompt_to_tensors(prompt,sizes),self.device)
                         gt_info["masks"] = gt_masks
@@ -406,17 +432,45 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             "normal_miou": normal_miou,
         }
 
+        print("Got results")
+
         wandb.log(results)
         return results
     
     def get_iou_vs_clicks(self):
-        cls_ious_and_clicks = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
+        cls_ious_and_clicks,cls_prompt_sequences = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=True,device=self.device)
         cls_ious = [iou for iou,_ in cls_ious_and_clicks]
         cls_clicks = [click for _,click in cls_ious_and_clicks]
 
-        normal_ious_and_clicks = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
+        normal_ious_and_clicks,normal_prompt_sequences = get_ious_and_clicks(self.sam,self.valid_dataset,self.cfg.train.benchmark_clicks,use_cls=False,device=self.device)
         normal_ious = [iou for iou,_ in normal_ious_and_clicks]
         normal_clicks = [click for _,click in normal_ious_and_clicks]
+
+        def save_prompt_sequences(prompt_sequences,name):
+
+            # rm seqs/{name}
+            if os.path.exists(f"seqs/{name}"):
+                for f in glob(f"seqs/{name}/*"):
+                    os.remove(f)
+                os.rmdir(f"seqs/{name}")
+            os.mkdir(f"seqs/{name}")
+
+            for i,(img,seq) in enumerate(prompt_sequences):
+                curr_img = None
+                prev_img = None
+                img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+                for i,prompt in enumerate(seq):
+                    prompt_img = render_prompt(img,prompt,self.sv_valid_dataset,self.sam.predictor) if prompt is not None else prev_img
+                    prev_img = prompt_img
+                    if curr_img is None:
+                        curr_img = prompt_img
+                    else:
+                        curr_img = clip_together_imgs(curr_img,prompt_img)
+                
+                curr_img.save(f"seqs/{name}/{i}.png")
+            
+        # save_prompt_sequences(cls_prompt_sequences,"cls")
+        # save_prompt_sequences(normal_prompt_sequences,"normal")
 
         def make_graph(clicks,ious,name):
             # graph as heatmap
@@ -452,12 +506,13 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         # upload status to GCP
 
     
-    def export(self):
+    def export(self,dry_run:bool=False):
         export(self.model_path,self.cfg,self.sam,self.device)
 
         all_cache_files = glob(os.path.join(self.model_path,"*"))
 
-        gcp_upload(GCP_EXPORT_BUCKET, f"smart_poly_models/{self.dataset_id}/", all_cache_files)
+        if not dry_run:
+            gcp_upload(GCP_EXPORT_BUCKET, f"smart_poly_models/{self.dataset_id}/", all_cache_files)
     
     def train(self):
 
@@ -485,6 +540,7 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
             print("Not exporting.")
         
         print("Done!")
+        wandb.finish()
         # exit
         import sys
         sys.exit(0)

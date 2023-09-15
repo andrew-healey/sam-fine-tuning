@@ -14,6 +14,8 @@ import cv2
 from PIL import Image
 import numpy as np
 
+# from .models import WrappedSamModel
+
 annotator = MaskAnnotator()
 def mask_to_img(mask,img):
     mask = mask.cpu().detach().numpy()[None,:,:]
@@ -53,7 +55,8 @@ def show_confusion_matrix(gt_classes: List[int], pred_classes: List[int], class_
 
 box_annotator = sv.BoxAnnotator()
 
-def render_prompt(img,prompt,sv_dataset):
+import torch
+def render_prompt(img,prompt,sv_dataset,predictor):
     if isinstance(img,str):
         img = sv_dataset.images[img]
     img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
@@ -69,9 +72,17 @@ def render_prompt(img,prompt,sv_dataset):
     if prompt.mask is None:
         mask_detection = sv.Detections.empty()
     else:
+
+        _,(original_size,input_size) = predictor.preprocess_image(img)
+
+        mask = torch.from_numpy(prompt.mask)[None,None,...]
+
+        upscaled_mask = predictor.model.postprocess_masks(mask,input_size,original_size)
+        upscaled_mask = (upscaled_mask > 0).cpu().detach().numpy()[0,0]
+
         mask_detection = sv.Detections(
             xyxy=sv.detection.utils.mask_to_xyxy(prompt.mask[None,...]),
-            mask=prompt.mask[None,...],
+            mask=upscaled_mask[None,...],
             class_id=np.array([1]),
         )
     

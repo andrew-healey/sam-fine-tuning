@@ -71,6 +71,8 @@ from .binary_mask import get_max_iou_masks
 
 from typing import Tuple
 
+from random import randrange
+
 from tqdm import tqdm
 @torch.no_grad()
 def get_ious_and_clicks(
@@ -84,10 +86,18 @@ def get_ious_and_clicks(
 
     clicks = [] # list of (iou,num_clicks) tuples
 
+    prompt_sequences:List[Tuple[np.ndarray,List[Prompt]]] = []
+
+
     for batch in tqdm(valid_dataset):
+
         prompt_input,gt_info,gt_cls_info, imgs,sizes, prompt = batch = to(batch,device)
         gt_masks = gt_info["masks"]
         device = gt_masks.device
+
+        my_seq = (imgs[0],[prompt])
+        if randrange(10)==0:
+            prompt_sequences.append(my_seq)
 
         encoder_output = sam.encoder.get_decoder_input(imgs,prompt)
 
@@ -124,8 +134,12 @@ def get_ious_and_clicks(
                 clicks.append((iou,click_idx+1))
             
             if click_idx == max_num_clicks-1: break
-            prompt = get_next_interaction(pred_mask,binary_mask,best_det,prompt)
+
+            if prompt is not None:
+                prompt = get_next_interaction(pred_mask,binary_mask,best_det,prompt)
+
+                my_seq[1].append(prompt)
     
     assert len(clicks) > 0,"No instances in dataset"
 
-    return clicks
+    return clicks, prompt_sequences

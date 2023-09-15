@@ -76,7 +76,8 @@ def onnx_export(dir:str,cfg:Config,sam:WrappedSamModel,device:torch.device):
         "has_mask_input": torch.tensor([1], dtype=torch.float),
         "orig_im_size": torch.tensor([1500, 2250], dtype=torch.float)
     }
-    output_names = ["masks", "iou_predictions", "low_res_masks","cls_masks","cls_iou_predictions","cls_low_res_masks"]
+    # output_names = ["masks", "iou_predictions", "low_res_masks"]
+    output_names = ["cls_masks","cls_iou_predictions","cls_low_res_masks"]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
