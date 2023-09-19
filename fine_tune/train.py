@@ -410,7 +410,9 @@ class CustomSAMTrainer(AbstractMonitoredTrainer):
         # calculate confusion matrix
         conf_matrix = show_confusion_matrix(gt_classes, pred_classes, class_names=self.sv_valid_dataset.classes)
         percent_recall = np.diag(conf_matrix) / np.sum(conf_matrix, axis = 1)
-        avg_recall = np.mean(percent_recall)
+        # filter out nan values
+        percent_recall_clean = percent_recall[~np.isnan(percent_recall)]
+        avg_recall = np.mean(percent_recall_clean)
 
         confusion_matrix = plt_to_pil()
 

@@ -42,4 +42,4 @@ ENV COMMIT=$COMMITHASH
 RUN test -n "$COMMIT"
 
 ENV PYTHONPATH=/app/
-CMD [ "./run.sh", "fine_tune.aws_smart_poly_config"]
+CMD [ "python","-m", "fine_tune.aws_smart_poly_config"]
