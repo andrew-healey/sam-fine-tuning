@@ -1,7 +1,10 @@
 # Download
 
 ```bash
-git clone https://github.com/andrew-healey/sam-fine-tune.git --recursive
+git clone https://github.com/andrew-healey/sam-fine-tuning.git
+cd sam-fine-tuning
+rm -rf segment-anything && git clone https://github.com/andrew-healey/segment-anything.git
+
 ```
 
 # Run locally
@@ -11,10 +14,12 @@ conda env create -n sam python=3.11.5 -c conda-forge
 conda activate sam
 conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia
 pip install -r requirements.txt
+bash ./scripts/get_weights.sh
+
 python -m fine_tune.aws_smart_poly_config
 ```
 
-# Dockerfile
+# Run from dockerfile
 
 ```bash
 export AWS_ACCESS_KEY_ID=<your_access_key_id>

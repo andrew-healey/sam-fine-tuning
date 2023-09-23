@@ -19,3 +19,5 @@ runs_new/
 nohup.out
 
 *.png
+
+**/*midas*

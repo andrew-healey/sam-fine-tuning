@@ -37,8 +37,6 @@ class DataConfig(YAMLWizard):
 
     dataset_name:Optional[str] = None # optional, used only for future reference
 
-DataConfig(cls_ids=None)
-
 @dataclass
 class ModelConfig(YAMLWizard):
 

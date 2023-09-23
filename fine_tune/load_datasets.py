@@ -95,7 +95,6 @@ def prepare_torch_dataset(predictor:SamPredictor,cfg:Config,ds:Dataset,max_promp
         ret = SplitSamDataset(ret,max_prompts/num_prompts)
     return ret
 
-from src.utils.cloud_utils import firestore,gac_json,gcp_download
 import os
 import json
 
@@ -127,6 +126,7 @@ async def download_img(img_id,owner_id,save_path):
 import datetime
 
 def download_raw_dataset(dataset_id:str,save_dir="dataset"):
+    from src.utils.cloud_utils import firestore,gac_json,gcp_download
     db = firestore.Client.from_service_account_json(gac_json)
 
 
