@@ -50,6 +50,8 @@ class Prompt:
 
     mask_loss: bool = True
 
+    testing: bool = False
+
     def __post_init__(self):
         # assert self.points is not None or self.box is not None or self.mask is not None,"Prompt must have at least one of coords, box, or mask"
 

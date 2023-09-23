@@ -380,6 +380,8 @@ class SamSemSegDataset(SamDataset):
         yield Prompt(
             gt_mask=gt_mask,
             multimask=False,
+            gt_cls=np.array(0,dtype=np.int64),
+            testing=True,
         )
 
 import random

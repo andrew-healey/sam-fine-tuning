@@ -17,3 +17,5 @@ runs_new/
 .env
 
 nohup.out
+
+*.png

@@ -59,7 +59,7 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
     # I grow masks in-place for speed
     if cfg.grow_masks:
         for dataset in [train_dataset,valid_dataset]:
-            grow_dataset_masks(dataset,growth_radius=cfg.data.growth_radius)
+            grow_dataset_masks(dataset,growth_radius=cfg.growth_radius)
 
     check_for_overlap(train_dataset,valid_dataset)
 

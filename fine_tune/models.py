@@ -308,7 +308,7 @@ class WrappedMaskDecoder(nn.Module):
                 # mse loss
                 losses["mse"] = F.mse_loss(max_iou, iou_predictions[0,best_pred_idx])
 
-                if prompt.mask_loss:
+                if prompt.mask_loss and self.cfg.data.use_masks:
                     pred_mask = low_res_masks[:,best_pred_idx,None]
                     # print("upscaled_masks",upscaled_masks.shape)
                     upscaled_mask = upscaled_masks[best_pred_idx,None]
@@ -340,7 +340,7 @@ class WrappedMaskDecoder(nn.Module):
                 cls_losses["ce"] = F.cross_entropy(cls_iou_predictions[0],gt_cls_logits[best_det])
                 cls_losses["mse"] = F.mse_loss(cls_max_iou, cls_pred_iou)
 
-                if prompt.mask_loss:
+                if prompt.mask_loss and self.cfg.data.use_masks:
                     before_mask_loss = time()
 
                     cls_pred_mask = cls_low_res_masks[:,best_cls,None]
@@ -365,7 +365,7 @@ class WrappedMaskDecoder(nn.Module):
 
     def get_trainable_parameters(self):
         if self.ft:
-            return self.mask_decoder.parameters()
+            return list(self.mask_decoder.parameters())
 
         combined_params = []
         if self.use_lora:
