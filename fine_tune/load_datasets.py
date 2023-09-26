@@ -61,7 +61,8 @@ def load_datasets(cfg:DataConfig, rf_dataset:Union[Dataset,str]) -> Tuple[Detect
         for dataset in [train_dataset,valid_dataset]:
             grow_dataset_masks(dataset,growth_radius=cfg.growth_radius)
 
-    check_for_overlap(train_dataset,valid_dataset)
+    if(cfg.check_for_overlap):
+        check_for_overlap(train_dataset,valid_dataset)
 
     cfg.classes = train_dataset.classes
     cfg.num_classes = len(train_dataset.classes)

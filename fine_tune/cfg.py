@@ -37,6 +37,8 @@ class DataConfig(YAMLWizard):
 
     dataset_name:Optional[str] = None # optional, used only for future reference
 
+    check_for_overlap:bool = True
+
 @dataclass
 class ModelConfig(YAMLWizard):
 

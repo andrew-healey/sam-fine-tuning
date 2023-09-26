@@ -25,7 +25,8 @@ cfg = Config(
             use_decoder_lora=False,
             decoder_lora_r=8,
             use_cls=True,
-            custom_hypers=True
+            custom_hypers=True,
+            ft=True
         ),
         binarize_dynamic=True
     ),
@@ -41,6 +42,7 @@ cfg = Config(
             "ce": 1,
             "cls_loss": 1,
         },
-        eval_period=1_500
+        eval_period=1_500,
+        max_epochs=1
     )
 )
